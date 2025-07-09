@@ -12,6 +12,10 @@ class Player:
         }
         self.blocking = False
 
+        # Position (used by ExplorationScene)
+        self.x = 50
+        self.y = 400
+
     def attack(self):
         return 10 + self.level * 2
 
