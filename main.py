@@ -10,17 +10,14 @@ pygame.display.set_caption("Pygame RPG")
 
 clock = pygame.time.Clock()
 
-# Initialize MusicManager and play background music
 music_manager = MusicManager(volume=0.4)
 music_manager.load("assets/audio/background_music.mp3")
 music_manager.play()
 
-# Create a persistent player instance (includes position now)
 player = Player()
 
-# Initial scene
 exploration = ExplorationScene(screen, player)
-exploration.last_battle_x = -1000  # Allow the first battle to trigger
+exploration.last_battle_x = -1000
 battle = None
 current_scene = "exploration"
 
@@ -31,7 +28,6 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
-        # Music mute toggle on M key
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_m:
                 music_manager.toggle_mute()
@@ -41,7 +37,7 @@ while running:
         elif current_scene == "battle":
             battle.handle_event(event)
 
-    dt = clock.tick(60)  # Calculate delta time (seconds)
+    dt = clock.tick(60)
 
     if current_scene == "exploration":
         exploration.update(keys)
@@ -50,19 +46,19 @@ while running:
         triggered_ghost = exploration.check_battle_trigger()
 
         if triggered_ghost:
-            battle = BattleScene(screen, player)  # Pass player with retained x/y
+            battle = BattleScene(screen, player)
             current_scene = "battle"
             triggered_ghost.visible = False
             triggered_ghost.trigger_battle = False
-            exploration.last_battle_x = player.x  # Now uses player.x instead of hero_x
+            exploration.last_battle_x = player.x
 
     elif current_scene == "battle":
-        battle.update(dt)  # Pass dt here
+        battle.update(dt)
         battle.draw()
 
-        if battle.battle_over:
-            if keys[pygame.K_ESCAPE]:
-                current_scene = "exploration"
+        # Switch back to exploration only after player confirms modal
+        if battle.ready_to_exit:
+            current_scene = "exploration"
 
     pygame.display.flip()
 

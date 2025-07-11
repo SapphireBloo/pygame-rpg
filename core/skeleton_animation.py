@@ -1,4 +1,5 @@
 import pygame
+import random
 
 class SkeletonAnimation:
     def __init__(self, x, y, frames, messages, frame_delay=250, max_bubble_width=250):
@@ -22,8 +23,21 @@ class SkeletonAnimation:
 
         self.name = "Whisper Jack"
         
-        self.messages = messages.copy()  
-        self.farewell_line = "Got candy? No? Then I'm ghostin'..."
+        self.messages = messages.copy()
+        
+        self.farewell_lines = [
+            "Got candy? No? Then I'm ghostin'...",
+            "The sweetest treats vanish first... so do I.",
+            "Remember, Jack’s always watching… especially for candy.",
+            "No candy, no company. I’m haunting off.",
+            "Sugar’s the price for my company… and you’re broke.",
+            "Catch me if you can… but first, find some candy.",
+            "Candy or chaos—choose wisely, or I’ll be back.",
+            "Trick or treat? Looks like you’re all treat... for now.",
+        ]
+
+        # Pick a random farewell line at init
+        self.farewell_line = random.choice(self.farewell_lines)
         
         self.current_message_index = 0
         self.message_done = False
@@ -78,8 +92,10 @@ class SkeletonAnimation:
                 if self.current_message_index >= len(self.messages):
                     if not self.message_done:
                         self.message_done = True
+                        # Append the random farewell line once all normal messages are done
                         self.messages.append(self.farewell_line)
                     else:
+                        # After farewell line, start fade out
                         self.fading_out = True
 
     def draw(self, screen, camera_offset):

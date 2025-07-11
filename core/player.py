@@ -1,13 +1,14 @@
 class Player:
     def __init__(self):
-        self.name = "Hero"
+        self.name = "Charlie"  # Rename as you want
         self.hp = 100
         self.max_hp = 100
         self.level = 1
-        self.xp = 0
-        self.xp_to_next = 50
+        self.last_candy_reward = 0  # Track how much candy was earned last battle
+
+        self.candy = 0  # Candy as currency and healing resource
+        
         self.inventory = {
-            "potion": 3,
             "bomb": 1
         }
         self.blocking = False
@@ -16,6 +17,17 @@ class Player:
         self.x = 50
         self.y = 400
 
+        # --- NEW: Upgrade System ---
+        self.upgrades = {
+            "max_hp_plus_25": False,
+            "bomb_power_plus_10": False,
+            "auto_block": False,
+            "double_candy": False,
+            "heal_boost": False,
+            "resurrect_once": False
+        }
+        self.used_resurrect = False  # tracks if resurrect was already used
+
     def attack(self):
         return 10 + self.level * 2
 
@@ -23,27 +35,30 @@ class Player:
         self.blocking = True
 
     def heal(self):
-        if self.inventory["potion"] > 0:
-            self.inventory["potion"] -= 1
-            heal_amt = 25
-            self.hp = min(self.max_hp, self.hp + heal_amt)
-            return heal_amt
+        candy_needed = 1
+        base_heal = 25
+
+        if self.upgrades.get("heal_boost"):
+            base_heal = 35  # heal more if upgrade bought
+
+        if self.candy >= candy_needed:
+            self.candy -= candy_needed
+            self.hp = min(self.max_hp, self.hp + base_heal)
+            return base_heal
         return 0
 
     def use_bomb(self):
         if self.inventory["bomb"] > 0:
             self.inventory["bomb"] -= 1
-            return 30 + self.level * 3
+            base_damage = 30 + self.level * 3
+
+            if self.upgrades.get("bomb_power_plus_10"):
+                base_damage += 10
+
+            return base_damage
         return 0
 
-    def gain_xp(self, amount):
-        self.xp += amount
-        messages = []
-        while self.xp >= self.xp_to_next:
-            self.xp -= self.xp_to_next
-            self.level += 1
-            self.max_hp += 10
-            self.hp = self.max_hp
-            self.xp_to_next = int(self.xp_to_next * 1.5)
-            messages.append("🆙 You leveled up to Lv " + str(self.level) + "!")
-        return messages
+    def add_candy(self, amount):
+        if self.upgrades.get("double_candy"):
+            amount *= 2
+        self.candy += amount

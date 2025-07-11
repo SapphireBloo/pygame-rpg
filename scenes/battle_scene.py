@@ -5,6 +5,10 @@ from core.enemy import Enemy
 from core.combat_text import CombatText
 from core.combat_options import CombatOptions
 from core.skeleton_animation import SkeletonAnimation
+from core.player_hud import PlayerHUD
+from core.enemy_hud import EnemyHUD
+from core.end_combat_modal import EndCombatModal
+from core import game_state
 
 class BattleScene:
     def __init__(self, screen, player):
@@ -14,13 +18,21 @@ class BattleScene:
 
         self.enemy.name = "Ghost"
         self.enemy.hp = self.enemy.max_hp
-        self.enemy.xp = 50
 
         self.font = pygame.font.SysFont("consolas", 22)
-        self.messages = ["A ghostly presence materializes..."]
         self.battle_over = False
+        self.ready_to_exit = False  # Flag for main.py to exit battle
 
-        self.turn_state = "intro"  # Start with intro
+        self.auto_block_used = False
+        self.resurrect_used = False
+
+        if self.player.upgrades.get("auto_block"):
+            self.player.blocking = True
+            self.auto_block_used = True
+
+        self.show_whisper_jack_intro = not game_state.whisper_jack_combat_intro_done
+        self.turn_state = "intro" if self.show_whisper_jack_intro else "player_turn"
+
         self.delay_start = 0
         self.delay_duration = 600
 
@@ -51,19 +63,26 @@ class BattleScene:
 
         self.combat_texts = []
         self.combat_options = CombatOptions(self.screen)
+        self.end_modal = EndCombatModal(self.screen, 0)
 
-        # Whisper Jack intro
-        jack_frames_path = os.path.join("assets", "images", "Skeleton")
-        jack_frames = self.load_idle_frames(jack_frames_path)
-        jack_frames = [pygame.transform.flip(frame, True, False) for frame in jack_frames]
-        jack_msgs = [
-            "Combat time!",
-            "Use ← and → to choose.",
-            "Press Space or Enter to select.",
-            "Think fast. The dead don't wait."
-        ]
-        self.whisper_jack = SkeletonAnimation(330, 400, jack_frames, jack_msgs)
-        self.intro_done = False
+        if self.show_whisper_jack_intro:
+            jack_frames_path = os.path.join("assets", "images", "Skeleton")
+            jack_frames = self.load_idle_frames(jack_frames_path)
+            jack_frames = [pygame.transform.flip(frame, True, False) for frame in jack_frames]
+            jack_msgs = [
+                "Combat time!",
+                "Use ← and → to choose.",
+                "Press Space or Enter to select.",
+                "Think fast. The dead don't wait."
+            ]
+            self.whisper_jack = SkeletonAnimation(330, 400, jack_frames, jack_msgs)
+        else:
+            self.whisper_jack = None
+
+        self.intro_done = not self.show_whisper_jack_intro
+
+        self.player_hud = PlayerHUD(screen, self.font, self.player)
+        self.enemy_hud = EnemyHUD(screen, self.font, self.enemy)
 
     def load_idle_frames(self, folder_path, scale=(150, 150)):
         return [
@@ -88,13 +107,13 @@ class BattleScene:
             for filename in sorted(os.listdir(folder_path)) if filename.endswith(".png")
         ] if os.path.exists(folder_path) else []
 
-    def log(self, message):
-        self.messages.append(message)
-        if len(self.messages) > 6:
-            self.messages.pop(0)
-
     def handle_event(self, event):
-        if self.turn_state == "intro":
+        if self.end_modal.visible:
+            if self.end_modal.handle_event(event):
+                self.ready_to_exit = True
+            return
+
+        if self.show_whisper_jack_intro and self.turn_state == "intro":
             self.whisper_jack.handle_event(event)
             return
 
@@ -102,8 +121,7 @@ class BattleScene:
             if event.key in [pygame.K_LEFT, pygame.K_RIGHT]:
                 self.combat_options.handle_event(event)
             elif event.key in [pygame.K_SPACE, pygame.K_RETURN]:
-                self.combat_options.handle_event(event)  # Marks selection made
-
+                self.combat_options.handle_event(event)
                 choice = self.combat_options.get_selected()
                 if choice is not None:
                     offset_x = random.randint(-10, 10)
@@ -112,36 +130,30 @@ class BattleScene:
                     if choice == "Attack":
                         dmg = self.player.attack()
                         self.enemy.hp -= dmg
-                        self.log(f"Charlie punches for {dmg}!")
                         self.combat_texts.append(CombatText(f"-{dmg}", 575 + offset_x, 380 + offset_y, (255, 80, 80)))
                         self.start_delay("enemy_turn")
 
                     elif choice == "Heal":
-                        healed = self.player.heal()
-                        if healed:
-                            self.log(f"Charlie drinks a potion (+{healed} HP).")
-                            self.combat_texts.append(CombatText(f"+{healed}", 125 + offset_x, 380 + offset_y, (100, 255, 100)))
-                        else:
-                            self.log("No potions left!")
-                        self.start_delay("enemy_turn")
+                        heal_amount = self.player.heal()
+                        if heal_amount > 0:
+                            self.combat_texts.append(CombatText(f"+{heal_amount}", 125 + offset_x, 380 + offset_y, (100, 255, 100)))
+                            self.start_delay("enemy_turn")
+
 
                     elif choice == "Block":
                         self.player.block()
-                        self.log("Charlie braces for impact...")
                         self.combat_texts.append(CombatText("Block!", 125 + offset_x, 380 + offset_y, (150, 200, 255)))
                         self.start_delay("enemy_turn")
 
                     elif choice == "Item":
                         dmg = self.player.use_bomb()
                         if dmg:
+                            if self.player.upgrades.get("bomb_power_plus_10"):
+                                dmg += 10
                             self.enemy.hp -= dmg
-                            self.log(f"Charlie hurls a bomb for {dmg}!")
                             self.combat_texts.append(CombatText(f"-{dmg}", 575 + offset_x, 380 + offset_y, (255, 100, 100)))
-                        else:
-                            self.log("No bombs left!")
                         self.start_delay("enemy_turn")
 
-                    # Reset selection for next turn
                     self.combat_options.reset_selection()
 
     def start_delay(self, next_state):
@@ -152,13 +164,14 @@ class BattleScene:
     def update(self, dt):
         now = pygame.time.get_ticks()
 
-        if not self.intro_done:
+        if self.show_whisper_jack_intro and not self.intro_done:
             self.whisper_jack.update(dt)
             if self.whisper_jack.message_done and not self.whisper_jack.fading_out:
                 self.whisper_jack.fading_out = True
             elif not self.whisper_jack.active:
                 self.intro_done = True
                 self.turn_state = "player_turn"
+                game_state.whisper_jack_combat_intro_done = True
             return
 
         if now - self.last_update_time > self.idle_speed:
@@ -180,9 +193,11 @@ class BattleScene:
             self.turn_state = self.next_turn
 
         if self.enemy.hp <= 0 and not self.battle_over and not self.ghost_death_animating:
-            self.log("The ghost dissipates into mist...")
-            for msg in self.player.gain_xp(self.enemy.xp):
-                self.log(msg)
+            base_candy = random.randint(1, 3)
+            if self.player.upgrades.get("double_candy"):
+                base_candy *= 2
+            self.player.candy += base_candy
+            self.player.last_candy_reward = base_candy
             self.ghost_death_animating = True
             self.ghost_death_index = 0
             return
@@ -192,31 +207,30 @@ class BattleScene:
                 self.enemies_defeated += 1
                 if self.enemies_defeated % self.switch_every == 0:
                     self.bg_index = (self.bg_index + 1) % len(self.backgrounds)
-                    self.log("The scene darkens...")
+                game_state.first_battle_done = True
+                if not self.end_modal.visible:
+                    self.end_modal.open(self.player.last_candy_reward)
                 self.battle_over = True
                 self.ghost_death_animating = False
+            return
 
         if self.player.hp <= 0 and not self.battle_over:
-            self.log("Charlie collapses... Game over.")
-            self.battle_over = True
+            if self.player.upgrades.get("resurrect_once") and not self.resurrect_used:
+                self.player.hp = self.player.max_hp // 2
+                self.resurrect_used = True
+                self.combat_texts.append(CombatText("Resurrected!", 125, 340, (255, 255, 100)))
+            else:
+                self.battle_over = True
 
         if self.turn_state == "enemy_turn" and not self.battle_over and not self.ghost_death_animating:
             dmg = self.enemy.attack()
             if self.player.blocking:
                 dmg //= 2
                 self.player.blocking = False
-                self.log("Blocked! Damage halved.")
                 self.combat_texts.append(CombatText("Blocked!", 125, 380, (200, 200, 255)))
             self.player.hp -= dmg
-            self.log(f"The ghost claws for {dmg}!")
             self.combat_texts.append(CombatText(f"-{dmg}", 125, 380, (255, 80, 80)))
             self.start_delay("player_turn")
-
-    def draw_bar(self, x, y, width, height, value, max_value, color):
-        pygame.draw.rect(self.screen, (60, 60, 60), (x, y, width, height))
-        fill = int(width * (value / max_value))
-        pygame.draw.rect(self.screen, color, (x, y, fill, height))
-        pygame.draw.rect(self.screen, (255, 255, 255), (x, y, width, height), 2)
 
     def draw(self):
         if self.backgrounds:
@@ -232,24 +246,16 @@ class BattleScene:
         elif self.ghost_idle_frames and not self.battle_over:
             self.screen.blit(self.ghost_idle_frames[self.ghost_idle_index], (550, 400))
 
-        self.draw_bar(50, 30, 300, 20, int(self.displayed_player_hp), self.player.max_hp, (0, 200, 0))
-        self.draw_bar(450, 30, 300, 20, int(self.displayed_enemy_hp), self.enemy.max_hp, (200, 0, 0))
-
-        self.screen.blit(self.font.render(f"{self.player.name} - Lv {self.player.level}", True, (255, 255, 255)), (50, 5))
-        self.screen.blit(self.font.render(f"HP: {self.player.hp}/{self.player.max_hp}", True, (255, 255, 255)), (50, 55))
-        self.screen.blit(self.font.render(f"XP: {self.player.xp}/{self.player.xp_to_next}", True, (200, 200, 200)), (50, 80))
-        self.screen.blit(self.font.render(f"Potions: {self.player.inventory['potion']}  Bombs: {self.player.inventory['bomb']}", True, (200, 200, 200)), (50, 105))
-
-        self.screen.blit(self.font.render(self.enemy.name, True, (255, 100, 100)), (450, 5))
-        self.screen.blit(self.font.render(f"HP: {self.enemy.hp}/{self.enemy.max_hp}", True, (255, 255, 255)), (450, 55))
+        self.player_hud.draw()
+        self.enemy_hud.draw()
 
         for text in self.combat_texts:
             text.draw(self.screen)
 
-        if not self.intro_done:
+        if self.show_whisper_jack_intro and not self.intro_done:
             self.whisper_jack.draw(self.screen, camera_offset=0)
 
-        if self.battle_over:
-            self.screen.blit(self.font.render("Press Esc to return", True, (180, 180, 180)), (50, 500))
-        elif self.turn_state == "player_turn":
+        if self.turn_state == "player_turn" and not self.battle_over and not self.end_modal.visible:
             self.combat_options.draw()
+
+        self.end_modal.draw()

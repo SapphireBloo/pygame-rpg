@@ -2,7 +2,10 @@ import pygame
 import os
 import random
 from core.player import Player
+from core.player_hud import PlayerHUD
 from core.skeleton_animation import SkeletonAnimation
+from core import game_state  # import game_state here
+from core.candy_shop_modal import CandyShopModal  # NEW IMPORT
 
 class Ghost:
     def __init__(self, x, y, spawn_frames, enemy_img):
@@ -59,13 +62,20 @@ class ExplorationScene:
             for x in ghost_positions
         ]
 
-        # Skeleton (Whisper Jack)
         self.skeleton_frames = self.load_frames(os.path.join("assets", "images", "Skeleton"))
         self.skeleton_frames = [pygame.transform.flip(frame, True, False) for frame in self.skeleton_frames]
         self.skeleton_animations = []
         self.skeleton_intro_triggered = False
         self.skeleton_intro_done = False
         self.movement_locked = False
+        self.skeleton_second_intro_triggered = False
+        self.skeleton_second_intro_done = False
+
+        self.player_hud = PlayerHUD(self.screen, self.font, self.player)
+
+        self.shop_modal = CandyShopModal(screen, player)
+        self.show_shop_button = True
+        self.shop_button_rect = pygame.Rect(680, 10, 110, 35)
 
     def load_frames(self, folder_path, scale=(150, 150)):
         frames = []
@@ -93,34 +103,66 @@ class ExplorationScene:
     def spawn_skeleton_intro(self, x, y):
         charlie_name = "Chin Check Charlie"
         intro_messages = [
-        f"Well, well, well... look who we have here, {charlie_name}.",
-        "The shadows whisper my name... I'm Whisper Jack.",
-        "I’m here to guide you — and maybe keep you on your toes.",
-        "Use A and D to walk. And watch out for the candy... if you want me around."
+            f"Well, well, well... look who we have here, {charlie_name}.",
+            "The shadows whisper my name... I'm Whisper Jack.",
+            "I’m here to guide you — and maybe keep you on your toes.",
+            "Use A and D to walk. And watch out for the candy... if you want me around."
         ]
         anim = SkeletonAnimation(x, y, self.skeleton_frames, messages=intro_messages, frame_delay=250)
-
         self.skeleton_animations.append(anim)
 
-
+    def spawn_skeleton_second_intro(self, x, y):
+        charlie_name = "Chin Check Charlie"
+        second_intro_messages = [
+            f"Well, well... look who finally got some candy, {charlie_name}!",
+            "But you look beat up. Hitting 'H' might sweeten the deal.",
+            "Don't make me come back just to patch you up again...",
+            "Don't eat too much candy though... you'll need it for the Candy Shop ."
+        ]
+        anim = SkeletonAnimation(x, y, self.skeleton_frames, messages=second_intro_messages, frame_delay=250)
+        self.skeleton_animations.append(anim)
 
     def handle_event(self, event):
+        if self.shop_modal.visible:
+            self.shop_modal.handle_event(event)
+            return
+
         for anim in self.skeleton_animations:
             anim.handle_event(event)
 
+        if event.type == pygame.MOUSEBUTTONDOWN and self.shop_button_rect.collidepoint(event.pos):
+            self.shop_modal.open()
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_h:
+            heal_amount = self.player.heal()
+            if heal_amount > 0:
+                print(f"Healed {heal_amount} HP by eating candy. Candy left: {self.player.candy}")
+
+
     def update(self, keys):
+        if self.shop_modal.visible:
+            return
+
         now = pygame.time.get_ticks()
         moving = keys[pygame.K_a] or keys[pygame.K_d]
 
-        # Trigger Whisper Jack on first movement
-        if not self.skeleton_intro_triggered and moving:
+        if not self.skeleton_intro_triggered and moving and not game_state.whisper_jack_exploration_intro_done:
             screen_width = self.screen.get_width()
             spawn_x = self.camera_offset + screen_width - 200
             self.spawn_skeleton_intro(spawn_x, 400)
             self.skeleton_intro_triggered = True
             self.movement_locked = True
 
-        # Update hero animation
+        if (game_state.first_battle_done
+            and not self.skeleton_second_intro_triggered
+            and moving
+            and game_state.whisper_jack_exploration_intro_done):
+            screen_width = self.screen.get_width()
+            spawn_x = self.camera_offset + screen_width - 200
+            self.spawn_skeleton_second_intro(spawn_x, 400)
+            self.skeleton_second_intro_triggered = True
+            self.movement_locked = True
+
         if now - self.last_update > self.hero_speed:
             if moving and self.hero_walk_frames:
                 self.hero_walk_index = (self.hero_walk_index + 1) % len(self.hero_walk_frames)
@@ -154,13 +196,19 @@ class ExplorationScene:
         dt = now - self.last_update
         for anim in self.skeleton_animations:
             anim.update(dt)
-
         self.skeleton_animations = [a for a in self.skeleton_animations if a.active or not a.message_done]
 
         if self.skeleton_intro_triggered and not self.skeleton_intro_done:
             if all(a.message_done for a in self.skeleton_animations):
                 self.skeleton_intro_done = True
                 self.movement_locked = False
+                game_state.whisper_jack_exploration_intro_done = True
+
+        if self.skeleton_second_intro_triggered and not self.skeleton_second_intro_done:
+            if all(a.message_done for a in self.skeleton_animations):
+                self.skeleton_second_intro_done = True
+                self.movement_locked = False
+                game_state.whisper_jack_second_intro_done = True
 
     def check_battle_trigger(self):
         for ghost in self.ghosts:
@@ -191,5 +239,15 @@ class ExplorationScene:
         for anim in self.skeleton_animations:
             anim.draw(self.screen, self.camera_offset)
 
-        self.screen.blit(self.font.render("Explore with A/D (←/→)", True, (255, 255, 255)), (50, 20))
-        self.screen.blit(self.font.render("Walk into a ghost to begin battle!", True, (255, 255, 100)), (50, 50))
+        self.player_hud.draw()
+
+        if self.show_shop_button and not self.shop_modal.visible:
+            pygame.draw.rect(self.screen, (80, 80, 200), self.shop_button_rect)
+            pygame.draw.rect(self.screen, (255, 255, 255), self.shop_button_rect, 2)
+            label = self.font.render("Candy Shop", True, (255, 255, 255))
+            self.screen.blit(label, (
+                self.shop_button_rect.centerx - label.get_width() // 2,
+                self.shop_button_rect.centery - label.get_height() // 2
+            ))
+
+        self.shop_modal.draw()
