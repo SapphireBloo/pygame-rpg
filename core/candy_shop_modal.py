@@ -1,5 +1,6 @@
 import pygame
 
+
 class CandyShopModal:
     def __init__(self, screen, player):
         self.screen = screen
@@ -8,6 +9,7 @@ class CandyShopModal:
         self.title_font = pygame.font.SysFont("consolas", 28, bold=True)
         self.visible = False
         self.scroll_offset = 0
+        self.scroll_target_offset = 0
         self.scroll_speed = 20
         self.modal_rect = pygame.Rect(150, 80, 500, 440)
         self.close_button = pygame.Rect(self.modal_rect.right - 40, self.modal_rect.top + 10, 30, 30)
@@ -43,7 +45,7 @@ class CandyShopModal:
                 key = opt["key"]
                 owned = self.player.upgrades.get(key, False)
                 if owned:
-                    continue  # Skip owned upgrades
+                    continue
 
                 y = self.modal_rect.top + 100 + idx * 80 - self.scroll_offset
                 buy_button = pygame.Rect(self.modal_rect.left + 30, y + 45, 200, 30)
@@ -67,8 +69,9 @@ class CandyShopModal:
                     break
 
         elif event.type == pygame.MOUSEWHEEL:
-            self.scroll_offset -= event.y * self.scroll_speed
-            self.scroll_offset = max(0, min(self.scroll_offset, max(0, len(self.options) * 80 - 300)))
+            self.scroll_target_offset -= event.y * self.scroll_speed
+            max_scroll = max(0, len(self.options) * 80 - 300)
+            self.scroll_target_offset = max(0, min(self.scroll_target_offset, max_scroll))
 
     def try_purchase(self, opt):
         key = opt["key"]
@@ -77,10 +80,21 @@ class CandyShopModal:
             self.player.candy -= cost
             self.player.upgrades[key] = True
 
-            # Apply instant effects
             if key == "max_hp_plus_25":
                 self.player.max_hp += 25
                 self.player.hp += 25
+
+    def update(self):
+        if not self.visible:
+            return
+
+        # Smooth scroll towards target offset
+        diff = self.scroll_target_offset - self.scroll_offset
+        self.scroll_offset += diff * 0.2
+
+        # Clamp scroll offset
+        max_scroll = max(0, len(self.options) * 80 - 300)
+        self.scroll_offset = max(0, min(self.scroll_offset, max_scroll))
 
     def draw(self):
         if not self.visible:
@@ -107,37 +121,50 @@ class CandyShopModal:
         self.screen.blit(candy_text, (self.modal_rect.left + 30, self.modal_rect.top + 60))
 
         # Upgrades list
+        content_rect = pygame.Rect(self.modal_rect.left + 10, self.modal_rect.top + 80, self.modal_rect.width - 20, 340)
+        clip_rect = self.screen.get_clip()
+        self.screen.set_clip(content_rect)
+
         for idx, opt in enumerate(self.options):
             y = self.modal_rect.top + 100 + idx * 80 - self.scroll_offset
-            if self.modal_rect.top + 80 <= y <= self.modal_rect.bottom - 40:
-                name = opt["name"]
-                desc = opt["desc"]
-                cost = opt["cost"]
-                key = opt["key"]
-                owned = self.player.upgrades.get(key, False)
+            name = opt["name"]
+            desc = opt["desc"]
+            cost = opt["cost"]
+            key = opt["key"]
+            owned = self.player.upgrades.get(key, False)
 
-                name_text = self.font.render(name, True, (255, 255, 0) if not owned else (100, 255, 100))
-                desc_text = self.font.render(desc, True, (200, 200, 200))
-                cost_text = self.font.render(f"{cost} 🍬", True, (255, 200, 255))
+            name_text = self.font.render(name, True, (255, 255, 0) if not owned else (100, 255, 100))
+            desc_text = self.font.render(desc, True, (200, 200, 200))
+            cost_text = self.font.render(f"{cost} 🍬", True, (255, 200, 255))
 
-                self.screen.blit(name_text, (self.modal_rect.left + 30, y))
-                self.screen.blit(desc_text, (self.modal_rect.left + 30, y + 20))
-                self.screen.blit(cost_text, (self.modal_rect.left + 250, y))
+            self.screen.blit(name_text, (self.modal_rect.left + 30, y))
+            self.screen.blit(desc_text, (self.modal_rect.left + 30, y + 20))
+            self.screen.blit(cost_text, (self.modal_rect.left + 250, y))
 
-                if not owned:
-                    buy_button = pygame.Rect(self.modal_rect.left + 30, y + 45, 200, 30)
-                    # Change button color if hovered
-                    if idx == self.hovered_button_index:
-                        button_color = (140, 255, 140)  # lighter green on hover
-                    else:
-                        button_color = (100, 200, 100)
-                    pygame.draw.rect(self.screen, button_color, buy_button)
-                    pygame.draw.rect(self.screen, (255, 255, 255), buy_button, 2)
-                    btn_text = self.font.render("Buy", True, (0, 0, 0))
-                    self.screen.blit(btn_text, (
-                        buy_button.centerx - btn_text.get_width() // 2,
-                        buy_button.centery - btn_text.get_height() // 2
-                    ))
-                else:
-                    owned_text = self.font.render("Owned", True, (100, 255, 100))
-                    self.screen.blit(owned_text, (self.modal_rect.left + 250, y + 45))
+            if not owned:
+                buy_button = pygame.Rect(self.modal_rect.left + 30, y + 45, 200, 30)
+                button_color = (140, 255, 140) if idx == self.hovered_button_index else (100, 200, 100)
+                pygame.draw.rect(self.screen, button_color, buy_button)
+                pygame.draw.rect(self.screen, (255, 255, 255), buy_button, 2)
+                btn_text = self.font.render("Buy", True, (0, 0, 0))
+                self.screen.blit(btn_text, (
+                    buy_button.centerx - btn_text.get_width() // 2,
+                    buy_button.centery - btn_text.get_height() // 2
+                ))
+            else:
+                owned_text = self.font.render("Owned", True, (100, 255, 100))
+                self.screen.blit(owned_text, (self.modal_rect.left + 250, y + 45))
+
+        self.screen.set_clip(clip_rect)
+
+        # Scrollbar
+        total_content_height = len(self.options) * 80
+        visible_height = 340
+        if total_content_height > visible_height:
+            scrollbar_height = max(40, visible_height * visible_height // total_content_height)
+            scrollbar_track = pygame.Rect(self.modal_rect.right - 15, self.modal_rect.top + 80, 5, visible_height)
+            scroll_ratio = self.scroll_offset / max(1, total_content_height - visible_height)
+            scrollbar_top = scrollbar_track.top + int(scroll_ratio * (visible_height - scrollbar_height))
+            scrollbar_rect = pygame.Rect(scrollbar_track.left, scrollbar_top, 5, scrollbar_height)
+            pygame.draw.rect(self.screen, (50, 50, 50), scrollbar_track)
+            pygame.draw.rect(self.screen, (200, 200, 200), scrollbar_rect)

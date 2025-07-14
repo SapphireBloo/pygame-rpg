@@ -75,7 +75,8 @@ class ExplorationScene:
 
         self.shop_modal = CandyShopModal(screen, player)
         self.show_shop_button = True
-        self.shop_button_rect = pygame.Rect(680, 10, 110, 35)
+        self.shop_button_rect = pygame.Rect(650, 10, 150, 40)
+
 
     def load_frames(self, folder_path, scale=(150, 150)):
         frames = []
@@ -124,6 +125,7 @@ class ExplorationScene:
 
     def handle_event(self, event):
         if self.shop_modal.visible:
+            self.shop_modal.update()
             self.shop_modal.handle_event(event)
             return
 
@@ -247,7 +249,8 @@ class ExplorationScene:
             label = self.font.render("Candy Shop", True, (255, 255, 255))
             self.screen.blit(label, (
                 self.shop_button_rect.centerx - label.get_width() // 2,
-                self.shop_button_rect.centery - label.get_height() // 2
+                self.shop_button_rect.centery - label.get_height() // 2 + 1
             ))
+
 
         self.shop_modal.draw()
