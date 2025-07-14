@@ -7,10 +7,7 @@
 
 Battle spooky enemies, collect candy to unlock upgrades, and survive the whispers of **Whisper Jack**, the ghostly voice in your head who's got advice... and maybe an agenda.
 
-![Gameplay Screenshot Placeholder]
-<!-- Insert screenshot here later -->
 
----
 
 ## ⚠️ Status: Still Under Construction!  
 
@@ -79,7 +76,7 @@ Because when ghosts show up, someone’s gotta throw hands.
 And it’s Halloween — candy is serious business.
 
 👻 Credits
-Design & Code: [Your Name Here]
+Design & Code: [SapphireBloo]
 
 Skeleton Advisor: Whisper Jack (fictional)
 
@@ -97,12 +94,4 @@ Open an Issue or start a Discussion — we'd love your feedback.
 MIT License — free to play with, remix, or adapt.
 Just don't forget to leave some candy behind. 🍬
 
-vbnet
-Copy
-Edit
 
-Let me know if you'd like help adding a banner image, gameplay screenshots, or a logo to this later!
-
-🦴 License
-MIT License — free to play with, remix, or adapt.
-Just don't forget to leave some candy behind. 🍬
