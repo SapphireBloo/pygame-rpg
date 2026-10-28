@@ -2,7 +2,7 @@ import random
 
 import pygame
 
-from core.ui import get_font, WHITE, BLACK
+from core.ui import get_font, wrap_text, draw_speech_bubble
 
 FAREWELL_LINES = [
     "Got candy? No? Then I'm ghostin'...",
@@ -42,7 +42,6 @@ class SkeletonAnimation:
 
         self.name = "Whisper Jack"
         self.font = get_font(20)
-        self.name_font = get_font(18, bold=True)
         self.max_bubble_width = max_bubble_width
 
         self.messages = list(messages) + [random.choice(FAREWELL_LINES)]
@@ -80,48 +79,18 @@ class SkeletonAnimation:
                 self.frame_timer = 0
 
     # ---- drawing -------------------------------------------------------
-    def _wrap(self, text):
-        if text not in self._wrapped_cache:
-            lines, current = [], ""
-            for word in text.split(" "):
-                test = f"{current} {word}".strip()
-                if self.font.size(test)[0] <= self.max_bubble_width or not current:
-                    current = test
-                else:
-                    lines.append(current)
-                    current = word
-            if current:
-                lines.append(current)
-            self._wrapped_cache[text] = lines
-        return self._wrapped_cache[text]
-
     def draw(self, screen, camera_offset=0):
         if not self.active:
             return
         screen_x = self.x - camera_offset
         if self.frames:
             screen.blit(self.frames[self.frame_index], (screen_x, self.y))
-
         if self.message_index >= len(self.messages):
             return
-        lines = self._wrap(self.messages[self.message_index])
-        name_surface = self.name_font.render(self.name, True, (20, 20, 20))
-
-        padding = 10
-        line_height = self.font.get_height()
-        width = max([self.font.size(line)[0] for line in lines] + [name_surface.get_width()]) + padding * 2
-        height = line_height * len(lines) + name_surface.get_height() + padding * 3
-        bubble = pygame.Rect(max(10, screen_x - width - 20), self.y - height - 30, width, height)
-
-        pygame.draw.rect(screen, WHITE, bubble, border_radius=8)
-        pygame.draw.rect(screen, BLACK, bubble, 2, border_radius=8)
-        screen.blit(name_surface, (bubble.x + padding, bubble.y + padding))
-
-        text_y = bubble.y + padding + name_surface.get_height() + 5
-        for line in lines:
-            screen.blit(self.font.render(line, True, BLACK), (bubble.x + padding, text_y))
-            text_y += line_height
-
-        if not self.fading_out:
-            hint = self.font.render("[Press Space]", True, (100, 100, 100))
-            screen.blit(hint, (bubble.x + padding, bubble.bottom))
+        text = self.messages[self.message_index]
+        if text not in self._wrapped_cache:
+            self._wrapped_cache[text] = wrap_text(self.font, text, self.max_bubble_width)
+        # Bubble sits up and to the left of Jack, never off the left edge
+        draw_speech_bubble(screen, self.name, self._wrapped_cache[text],
+                           lambda w, h: (max(10, screen_x - w - 20), self.y - h - 30),
+                           hint=not self.fading_out)

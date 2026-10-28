@@ -9,12 +9,17 @@ Battle spooky enemies, collect candy to unlock upgrades, and survive the whisper
 
 This project is an active **work in progress**. Core gameplay systems are playable:
 
-- **Four chapters**: The Cabin, Witch's Hollow, The Bleeding Woods, and The Graveyard, each with tougher ghosts, joined by a glowing exit portal, a chapter title card, and Whisper Jack waiting on the other side
+- **Four chapters**: The Cabin, Warlock's Hollow, The Bleeding Woods, and The Graveyard, each with tougher ghosts and a boss at the end, joined by a glowing exit portal, a chapter title card, and Whisper Jack waiting on the other side
 - **Exploration mode** (side-scrolling adventure)
 - **Action-command battles**: time SPACE as the ring closes for PERFECT hits, time it on enemy swings to block or PARRY (and slide-kick counter); blocking is all timing, no menu button. Jab, Haymaker, and the Chin Check finisher, a Chin meter, telegraphed heavy attacks, zombie infection, ghosts that phase through sloppy hits
 - **Heavy-hitting effects**: hit-stop, screen shake, sparks/goo/candy-corn particles, white hit flashes, knockback, slow-motion K.O. zoom
 - **Gritty look**: per-level color grading, film grain, vignette, ground fog, inked outlines, and shadows
-- **Candy Shop upgrades** (spend your hard-earned candy on buffs)
+- **Candy Shop upgrades** (spend your hard-earned candy on buffs) in a card-style shop, plus animated results cards after every fight
+- **Four towering bosses**, each with a taunt, a signature heavy attack (telegraphed a turn ahead), hit flinches, and an enrage at half HP:
+  - **Mortis, Bringer of Death** (The Cabin): a ghost, so sloppy hits can pass right through him. *Death's Grasp* reaches out of a portal and steals HP
+  - **Grimwald the Warlock** (Warlock's Hollow): his *Hex Storm* drains your Chin meter
+  - **Scorchmaw the Fire Worm** (The Bleeding Woods): spits a *Fireball* that leaves Charlie BURNING (hurts every turn until he eats candy)
+  - **Malgorath the Demon** (The Graveyard, final boss): his *Hellfire Cleave* burns you AND drains your Chin meter
 - **Roaming zombies** in The Graveyard that shamble, idle, notice Charlie, and lunge to start a fight, with full attack and death animations in battle
 - **Animated characters** (Charlie, ghosts, zombies, Whisper Jack)
 
@@ -44,6 +49,12 @@ Expect some missing features, placeholder art, and candy wrappers on the floor w
    python main.py
    ```
 
+## 🔊 Sound Effects
+
+The game plays sound effects automatically if you drop them in `assets/audio/sfx/`, named after the event (for example `punch.wav`, `parry.ogg`, `ko.mp3`). Add `_1`, `_2`, ... for random variations (`punch_1.wav`, `punch_2.wav`). Anything missing is skipped. The full list of event names is at the top of `core/sfx.py`:
+
+`whoosh` `punch` `punch_heavy` `perfect` `miss` `parry` `block` `hurt` `heal` `explosion` `jump` `slide` `burn` `zombie_groan` `zombie_bite` `ghost_wail` `warlock_cast` `warlock_laugh` `reaper_laugh` `reaper_slash` `reaper_grasp` `worm_roar` `worm_spit` `demon_roar` `demon_cleave` `enrage` `ko` `victory` `defeat` `ui_move` `ui_select` `portal`
+
 ## 📂 Project Structure
 
 ```
@@ -56,17 +67,21 @@ core/
   effects.py             Combat juice: shake, particles, timing rings, swooshes, animation scripts
   grit.py                Color grading, grain, vignette, fog, ground shadows (toggle GRIT in settings)
   roaming_zombie.py      Zombie wandering/chase/grab behavior in exploration
+  boss_encounter.py      Boss waiting at a level's end: taunt, then fight
+  enemy_art.py           Which animations each enemy uses, boss sizes (BOSS_HEIGHTS), and battle layout per enemy
+  sfx.py                 Sound effects by event name (files in assets/audio/sfx)
   assets.py              Cached image loading
-  ui.py                  Fonts, colors, and shared drawing helpers
+  ui.py                  Fonts, colors, and shared drawing helpers (spooky panels, candy buttons)
+  icons.py               Hand-drawn menu icons (candy corn, bombs, upgrade badges, Jack's skull)
   player.py              Charlie's stats, healing, bombs, candy, upgrades
-  enemy.py               Enemy stats and per-type traits (ghost phasing, zombie infection, heavy attacks)
+  enemy.py               Enemy stats and per-type traits (phasing, infection, burning, lifesteal, meter drain)
   upgrades.py            Candy Shop catalog
   battle_manager.py      Combat rules: move damage, timing bonuses, parries, infection (tuning in MOVES)
   combat_options.py      Battle menu
   combat_text.py         Floating damage/heal numbers
   player_hud.py          Player HP bar and stats
   enemy_hud.py           Enemy HP bar
-  end_combat_modal.py    Win/lose popup
+  end_combat_modal.py    Results card after a fight (win, boss win, loss)
   candy_shop_modal.py    Candy Shop window
   skeleton_animation.py  Whisper Jack
   music_manager.py       Background music
@@ -84,8 +99,6 @@ assets/
 
 - Save / load system
 - Inventory & equipment
-- Boss battles
-- Boss at the end of The Graveyard
 - New enemy types per chapter
 - More unique enemies & ghost variants
 - More interactions with Whisper Jack
@@ -99,6 +112,10 @@ Because when ghosts show up, someone's gotta throw hands. And it's Halloween, so
 - Design & Code: SapphireBloo
 - Skeleton Advisor: Whisper Jack (fictional)
 - Charlie (Jack-o'-Lantern) and Zombies: GameArt2D / pzUH (CC0)
+- Grimwald the Warlock: Evil Wizard 2 asset pack (CC0)
+- Mortis, Bringer of Death: Bringer of Death by Clembod (clembod.itch.io)
+- Scorchmaw the Fire Worm: Fire Worm asset pack (CC0)
+- Malgorath the Demon: Demon Slime (free version)
 - Font: Consolas
 - Made with: Python + pygame-ce
 

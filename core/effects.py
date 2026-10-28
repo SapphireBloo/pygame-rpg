@@ -284,3 +284,21 @@ class Swoosh:
         surf = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         pygame.draw.polygon(surf, (*self.color, int(220 * k)), outer + inner[::-1])
         screen.blit(surf, (0, 0))
+
+
+_aura_cache = {}
+
+
+def aura(color, size=(240, 280)):
+    """Soft glowing oval to put behind a boss so it pops off dark backgrounds (cached)."""
+    key = (color, size)
+    if key not in _aura_cache:
+        w, h = size
+        surf = pygame.Surface(size, pygame.SRCALPHA)
+        for i in range(12, 0, -1):
+            t = i / 12
+            rect = pygame.Rect(0, 0, int(w * t), int(h * t))
+            rect.center = (w // 2, h // 2)
+            pygame.draw.ellipse(surf, (*color, int(16 + 20 * (1 - t))), rect)
+        _aura_cache[key] = surf
+    return _aura_cache[key]

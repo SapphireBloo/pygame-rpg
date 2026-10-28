@@ -10,20 +10,22 @@ import random
 import pygame
 
 from core import game_state
-from core.animation import AnimatedSprite, frames_animation, load_gameart2d_character
-from core.assets import load_frames, load_sprite_sheet, load_background, tinted
+from core import sfx
+from core.animation import AnimatedSprite, load_gameart2d_character
+from core.assets import load_frames, load_background
 from core.battle_manager import BattleManager, MOVES, DEFENSE_PERFECT_MS, DEFENSE_GOOD_MS
 from core.combat_options import CombatOptions, JAB, HAYMAKER, CHIN_CHECK, HEAL, BOMB
 from core.combat_text import CombatText
-from core.effects import (Script, Shake, Particles, Swoosh, TimingRing, wait, tween, lerp,
+from core.effects import (Script, Shake, Particles, Swoosh, TimingRing, wait, tween, lerp, aura,
                           ease_out, ease_in, ease_in_out, PERFECT, GOOD, MISS)
-from core.end_combat_modal import EndCombatModal, CANDY_LINE, JACK_LINE
+from core.end_combat_modal import EndCombatModal, Reward
 from core.enemy import Enemy
+from core.enemy_art import enemy_animations, faces_right_in_battle, battle_layout, boss_effects
 from core.enemy_hud import EnemyHUD
 from core.grit import Grit
 from core.levels import LEVELS
 from core.player_hud import PlayerHUD
-from core.settings import GROUND_Y, FEET_Y, ZOMBIE_HEIGHT, HERO_HEIGHT, CHARACTER_INK
+from core.settings import GROUND_Y, FEET_Y, HERO_HEIGHT, CHARACTER_INK
 from core.skeleton_animation import SkeletonAnimation
 from core.ui import get_font, BLOCK_BLUE, WHITE, DAMAGE_RED, HEAL_GREEN, GOLD
 
@@ -34,16 +36,17 @@ ACTION = "action"          # a scripted sequence is playing
 RESULT = "result"          # win/loss modal is showing
 
 HERO_HOME_X = 175          # Charlie's feet when waiting
-ENEMY_HOME_X = 625         # enemy's feet
-STRIKE_GAP = 125           # how close Charlie stands to punch
-HIT_POINT = 0.55           # zombie damage lands this far through its attack animation
+DEFAULT_LUNGE = {"ghost": 300, "zombie": 70}   # how far each type surges at Charlie (bosses set "lunge")
+FIREBALL_MS = 380            # Fire Worm fireball travel time
+FIREBALL_MOUTH = (215, 165)  # where the fireball leaves the worm: (in front of its feet, above them)
+SPELL_GRAB_FRAME = 7.5       # Death's Grasp: the hand closes on Charlie at this frame of its spell
 NOTICE = (255, 230, 120)
 
 WIN_COMMENTS = [
-    "Jack: Not bad, kid.",
-    "Jack: Sweet. Literally.",
-    "Jack: That one got chin checked.",
-    "Jack: Chin checked. Next!",
+    "Not bad, kid.",
+    "Sweet. Literally.",
+    "That one's gonna feel it in the morning.",
+    "Chin checked. Next!",
 ]
 
 JACK_COMBAT_INTRO = [
@@ -61,8 +64,27 @@ class BattleScene:
         level = level or LEVELS[0]
         spec = enemy_spec or {"sprite": "ghost", **level["enemy"]}
         self.is_ghost = spec["sprite"] == "ghost"
-        self.enemy = Enemy(kind="ghost" if self.is_ghost else "zombie",
-                           **{k: v for k, v in spec.items() if k not in ("sprite", "first_strike")})
+        kind = spec.get("kind") or ("ghost" if self.is_ghost else "zombie")
+        self.enemy = Enemy(kind=kind, **{k: v for k, v in spec.items()
+                                         if k not in ("sprite", "first_strike", "kind", "lunge", "taunt", "defeat_quote")})
+        self.spec = spec
+        self.lunge = spec.get("lunge", DEFAULT_LUNGE.get(kind, 70))
+        self.foe_faces_right = faces_right_in_battle(spec["sprite"])
+        layout = battle_layout(spec["sprite"])
+        self.home_x = layout["home_x"]       # enemy's feet when waiting
+        self.strike_gap = layout["gap"]      # how close Charlie stands to punch
+        self.foe_mid = layout["mid"]         # height of the enemy's body center
+        self.aura_size = layout["aura"]
+        self.shadow_size = layout["shadow"]
+        self.hit_point = layout["hit_point"]  # damage lands this far through its attack animation
+        self.glow = layout["glow"]            # boss color (aura, enrage, intro)
+        self.glow_hot = tuple(min(255, c + 80) for c in self.glow)
+        self.sparks = layout["sparks"]        # particle colors when it gets hit
+        self.intro_anim = layout["intro"]
+        self.sounds = layout["sounds"]
+        self.boss_fx = boss_effects(spec["sprite"]) if self.enemy.boss else {}
+        self.effects = []                     # one-shot boss effects: [Animation, x, y, elapsed, frame_ms]
+        self.projectile = None                # the Fire Worm's fireball in flight
 
         self.rules = BattleManager(player, self.enemy)
         self.options = CombatOptions(screen, player)
@@ -82,8 +104,8 @@ class BattleScene:
         self.hero_x = HERO_HOME_X
         self.hero_facing = True
         self.hero_knock = 0.0
-        self.foe = AnimatedSprite(self._enemy_animations(spec["sprite"], level.get("ghost_tint")))
-        self.foe_x = ENEMY_HOME_X
+        self.foe = AnimatedSprite(enemy_animations(spec["sprite"], level.get("ghost_tint")))
+        self.foe_x = self.home_x
         self.foe_knock = 0.0
 
         # Juice
@@ -98,7 +120,7 @@ class BattleScene:
         self.slowmo_timer = 0
         self.zoom = 1.0
         self.zoom_target = 1.0
-        self.zoom_focus = (ENEMY_HOME_X, FEET_Y - 80)
+        self.zoom_focus = (self.home_x, FEET_Y - self.foe_mid)
         self.bomb_pos = None
         self.banner = None
         self.time = 0
@@ -121,17 +143,6 @@ class BattleScene:
         else:
             self._run(self._opening())
 
-    @staticmethod
-    def _enemy_animations(sprite, tint):
-        if sprite == "ghost":
-            idle = tinted(load_sprite_sheet("ghost_idle/ghost_idle.png", 32, 32), tint)
-            death = tuple(reversed(tinted(load_sprite_sheet("ghost_spawn/ghost_spawn.png", 32, 32), tint)))
-            return {
-                "idle": frames_animation(idle, 250, feet_y_in_frame=144),
-                "dead": frames_animation(death, 200, loop=False, feet_y_in_frame=144),
-            }
-        return load_gameart2d_character(sprite, ZOMBIE_HEIGHT, ink=CHARACTER_INK)
-
     # ---- helpers -----------------------------------------------------------
     def _run(self, generator):
         self.state = ACTION
@@ -143,7 +154,7 @@ class BattleScene:
 
     @property
     def foe_center(self):
-        return (self.foe_x + self.foe_knock, FEET_Y - 80)
+        return (self.foe_x + self.foe_knock, FEET_Y - self.foe_mid)
 
     def _say(self, text, pos, color=WHITE, size=22, bold=False, pop=False, life=1300):
         w = get_font(size, bold).size(text)[0]
@@ -182,6 +193,7 @@ class BattleScene:
         self.time += dt
         self.player_hud.update(dt)
         self.enemy_hud.update(dt)
+        self.end_modal.update(dt)
         self.shake.update(dt)
         self.grit.update(dt)
         for t in self.texts:
@@ -201,6 +213,15 @@ class BattleScene:
         wdt = dt * self.time_scale
         self.hero.update(wdt)
         self.foe.update(wdt)
+        if self.foe.name == "hit" and self.foe.finished:
+            self.foe.play("idle")
+        if self.enemy.enraged and self.enemy.is_alive and random.random() < wdt / 60:
+            self.particles.burst(self.foe_x + self.foe_knock + random.uniform(-40, 40), FEET_Y - 10,
+                                 [self.glow, self.glow_hot], 1, 50, 900, 5, gravity=-160)
+        if self.player.burning and random.random() < wdt / 45:      # Charlie's on fire
+            self.particles.burst(self.hero_x + random.uniform(-30, 30), FEET_Y - random.uniform(20, 120),
+                                 [(255, 150, 40), (255, 220, 90), (230, 70, 20)], 1, 40, 600, 5, gravity=-220)
+        self._update_effects(wdt)
         self.particles.update(wdt)
         for s in self.swooshes:
             s.update(wdt)
@@ -228,6 +249,19 @@ class BattleScene:
 
     # ---- round flow --------------------------------------------------------
     def _opening(self):
+        if self.enemy.boss:
+            sfx.play(self.sounds.get("laugh", "enrage"))
+            self._shout(self.enemy.name.upper(), self.glow_hot, 40, y=200)
+            self._say("BOSS BATTLE", (self.screen.get_width() / 2, 250), (230, 200, 255), 22, bold=True, life=1300)
+            self.shake.add(12)
+            cx, cy = self.foe_center
+            self.particles.burst(cx, cy, [self.glow, self.glow_hot] + (self.sparks or []), 36, 520, 900, 8, drag=2.5)
+            self.particles.dust(self.foe_x - 60, FEET_Y, math.pi)
+            self.particles.dust(self.foe_x + 60, FEET_Y, 0.0)
+            if self.foe.has(self.intro_anim):               # show off as the fight starts
+                self.foe.play(self.intro_anim, restart=True)
+            yield from wait(max(900, self.foe.current.duration if self.foe.has(self.intro_anim) else 0))
+            self.foe.play("idle")
         if self.first_strike:
             yield from self._first_strike()
         yield from self._begin_player_turn(tick=False)
@@ -244,10 +278,14 @@ class BattleScene:
         if not self.enemy.is_alive:
             yield from self._knockout()
             return
+        if self.enemy.check_enrage():
+            yield from self._enrage()
         yield from self._enemy_turn()
         if not self.enemy.is_alive:          # parry counter finished it
             yield from self._knockout()
             return
+        if self.enemy.check_enrage():
+            yield from self._enrage()
         if not self.player.is_alive and not (yield from self._survive()):
             return
         yield from self._begin_player_turn()
@@ -259,6 +297,15 @@ class BattleScene:
                 self.hero.flash = 120
                 self.particles.goo(self.hero_x, FEET_Y - 90, 8)
                 self._say(f"-{dmg} infection", (self.hero_x, FEET_Y - 175), (140, 230, 90))
+                yield from wait(350)
+                if not self.player.is_alive and not (yield from self._survive()):
+                    return
+            dmg = self.rules.burn_tick()
+            if dmg:
+                self.hero.flash = 120
+                self.particles.burst(self.hero_x, FEET_Y - 80, [(255, 150, 40), (255, 220, 90)], 14, 220, 500, 6,
+                                     gravity=-300)
+                self._say(f"-{dmg} burn", (self.hero_x, FEET_Y - 175), (255, 160, 60))
                 yield from wait(350)
                 if not self.player.is_alive and not (yield from self._survive()):
                     return
@@ -278,10 +325,28 @@ class BattleScene:
         yield from self._defeat()
         return False
 
+    def _foe_flinch(self):
+        """Enemies with a 'Take hit' animation flinch when struck (but not mid-attack or dying)."""
+        if self.enemy.is_alive and self.foe.has("hit") and self.foe.name in ("idle", "hit"):
+            self.foe.play("hit", restart=True)
+
+    def _enrage(self):
+        sfx.play("enrage")
+        self._shout(f"{self.enemy.name.split()[0].strip(',').upper()} IS ENRAGED!", self.glow_hot, 38, y=210)
+        self.shake.add(14)
+        self.foe.flash = 250
+        for _ in range(3):
+            self.particles.burst(*self.foe_center, [self.glow, self.glow_hot, (255, 255, 255)], 18, 380, 700, 7,
+                                 drag=2)
+            yield from wait(180)
+        yield from wait(300)
+
     # ---- Charlie's moves ---------------------------------------------------
     def _dash(self, target_x, ms=260, facing=True):
         self.hero_facing = facing
         self.hero.play("run", restart=True, speed=1.4)
+        if facing:
+            sfx.play("whoosh", 0.6)
         self.particles.dust(self.hero_x, FEET_Y, math.pi if facing else 0)
         start = self.hero_x
         frame = [0]
@@ -300,7 +365,7 @@ class BattleScene:
 
     def _attack(self, move):
         cfg = MOVES[move]
-        yield from self._dash(self.foe_x - STRIKE_GAP)
+        yield from self._dash(self.foe_x - self.strike_gap)
 
         # Wind-up pose while the timing ring closes
         if move == CHIN_CHECK:
@@ -365,13 +430,17 @@ class BattleScene:
         elif result.timing == GOOD:
             self._say("GOOD", (cx, cy - 150), WHITE, 24, bold=True, pop=True)
 
+        if result.timing == PERFECT:
+            sfx.play("perfect")
         if result.whiffed:
+            sfx.play("miss")
             yield from tween(120, lambda t: setattr(self, "foe_knock", 45 * ease_out(t)))
             self._say("WHIFF!", head, (190, 190, 190), 26, bold=True)
             self.hero.angle = -30                                  # stumble forward
             yield from wait(200)
             return
         if result.phased:
+            sfx.play("ghost_wail", 0.6)
             self.foe.alpha = 90
             self.particles.wisps(cx, cy)
             self._say("PHASED THROUGH!", head, (200, 230, 255), 22, bold=True)
@@ -380,6 +449,8 @@ class BattleScene:
             return
 
         perfect = result.timing == PERFECT
+        sfx.play("punch_heavy" if power > 1 else "punch")
+        self._foe_flinch()
         self.foe.flash = 130
         self.foe_knock = 18 * power + (15 if perfect else 0)
         self.hitstop = 50 + 30 * power + (50 if perfect else 0)
@@ -387,6 +458,8 @@ class BattleScene:
         self.particles.hit_sparks(cx - 25, cy, 0.0, big=power > 1 or perfect)
         if self.is_ghost:
             self.particles.wisps(cx, cy, count=10)
+        elif self.sparks:
+            self.particles.burst(cx, cy - 10, self.sparks, 10 + 4 * power, 300, 600, 6, drag=2)
         else:
             self.particles.goo(cx, cy - 10, 10 + 4 * power)
         if perfect or power == 3:
@@ -400,6 +473,7 @@ class BattleScene:
     def _heal(self):
         cured = self.player.infected > 0
         healed = self.rules.heal()
+        sfx.play("heal")
         yield from tween(260, lambda t: setattr(self.hero, "lift", 22 * math.sin(math.pi * t)))
         self.particles.heal(self.hero_x, FEET_Y - 80)
         if healed:
@@ -412,6 +486,7 @@ class BattleScene:
         self.hero.angle = 14
         yield from wait(140)
         self.hero.angle = -16
+        sfx.play("whoosh", 0.7)
         start = (self.hero_x + 40, FEET_Y - 110)
         end = self.foe_center
 
@@ -423,6 +498,8 @@ class BattleScene:
         self.bomb_pos = None
         self.hero.reset_pose()
         dmg = self.rules.bomb()
+        sfx.play("explosion")
+        self._foe_flinch()
         cx, cy = end
         self.particles.explosion(cx, cy)
         self.foe.flash = 160
@@ -434,9 +511,11 @@ class BattleScene:
 
     def _first_strike(self):
         self._shout("FIRST STRIKE!", (255, 200, 80), 40, y=180)
-        yield from self._dash(self.foe_x - STRIKE_GAP, 220)
+        yield from self._dash(self.foe_x - self.strike_gap, 220)
         self.hero.angle, self.hero.scale_x = -18, 1.2
         dmg = self.rules.first_strike()
+        sfx.play("punch_heavy")
+        self._foe_flinch()
         cx, cy = self.foe_center
         self.foe.flash, self.foe_knock, self.hitstop = 120, 40, 90
         self.shake.add(10)
@@ -449,27 +528,61 @@ class BattleScene:
     # ---- the enemy's turn --------------------------------------------------
     def _enemy_turn(self):
         heavy = self.enemy.next_heavy
+        kind = self.enemy.kind
         if heavy:                                     # wind-up tell
             yield from tween(320, lambda t: setattr(self.foe, "angle", 10 * math.sin(math.pi * t)))
         has_attack_anim = self.foe.has("attack")
+        sound = self.sounds.get("heavy" if heavy else "attack") or \
+            {"zombie": "zombie_bite", "ghost": "ghost_wail"}.get(kind, "whoosh")
+        sfx.play(sound)
         if has_attack_anim:
-            self.foe.play("attack", restart=True, speed=1.25 if heavy else 1.0)
-            impact_ms = self.foe.current.duration * HIT_POINT / self.foe.speed
+            # Heavy attacks use a second attack animation when there is one (Hex Storm, Death's Grasp)
+            move = "attack2" if heavy and self.foe.has("attack2") else "attack"
+            speed = 1.0
+            if heavy and move == "attack":   # bosses slow down to put their weight in; zombies lunge faster
+                speed = 0.85 if self.enemy.boss else 1.25
+            if self.enemy.enraged:
+                speed *= 1.2
+            self.foe.play(move, restart=True, speed=speed)
+            impact_ms = self.foe.current.duration * self.hit_point / self.foe.speed
         else:
             impact_ms = 340
-        lunge = 70 if has_attack_anim else 300           # ghosts swoop all the way in
+        lunge = self.lunge
+        launch_ms = None
+        if heavy and "fireball" in self.boss_fx:       # Fire Worm: spit a fireball from where it stands
+            launch_ms = impact_ms
+            impact_ms += FIREBALL_MS
+            lunge = 0
+        if heavy and "spell" in self.boss_fx:          # Death's Grasp: a hand reaches out of a portal over Charlie
+            self.effects.append([self.boss_fx["spell"], self.hero_x, FEET_Y + 8, 0.0, impact_ms / SPELL_GRAB_FRAME])
+            lunge = 0
         ring_color = (255, 90, 70) if heavy else (255, 215, 0)
         self.ring = TimingRing(self.hero_center, impact_ms, DEFENSE_PERFECT_MS, DEFENSE_GOOD_MS, ring_color)
         elapsed = 0
         while elapsed < impact_ms:
             elapsed += (yield)
-            self.foe_x = ENEMY_HOME_X - lunge * ease_in(min(1.0, elapsed / impact_ms))
+            self.foe_x = self.home_x - lunge * ease_in(min(1.0, elapsed / impact_ms))
+            if launch_ms is not None and elapsed >= launch_ms and self.projectile is None:
+                self._launch_fireball(impact_ms - elapsed)
         timing = self.ring.result or MISS
         self.ring = None
 
         result = self.rules.enemy_attack(timing)
+        if self.projectile:                           # the fireball arrives
+            self.projectile = None
+            hx, hy = self.hero_center
+            self._play_effect("explosion", hx + 20, hy - 10)
+            self.particles.explosion(hx + 20, hy - 10)
+            self.shake.add(10)
+            sfx.play("explosion")
+        if heavy and kind == "demon" and not result.parried:   # hellfire erupts under Charlie
+            self.particles.explosion(self.hero_x, FEET_Y - 30)
+            self.particles.burst(self.hero_x, FEET_Y, [(255, 120, 30), (255, 210, 80), (200, 40, 20)], 40, 600, 700,
+                                 8, gravity=-500, direction=-math.pi / 2, spread=0.9, drag=1.5)
+            self.shake.add(14)
         hx, hy = self.hero_center
         if result.parried:
+            sfx.play("parry")
             self._shout("PARRY!", GOLD, 44, y=230)
             self.particles.hit_sparks(hx + 40, hy, math.pi, big=True)
             self.hitstop = 130
@@ -479,17 +592,34 @@ class BattleScene:
             yield from self._counter(result)
             return
         if result.timed_block or result.stance_block:
+            sfx.play("block")
             self._say("BLOCKED!", (hx, hy - 125), BLOCK_BLUE, 26, bold=True, pop=True)
             self.particles.hit_sparks(hx + 40, hy, math.pi)
+        sfx.play("hurt")
         self.hero.flash = 120
         self.hero_knock = 12 + result.damage
         self.hitstop = 90 if heavy else 60
         self.shake.add(4 + result.damage / 2.5)
-        if not self.is_ghost:
+        if self.enemy.kind == "zombie":
             self.particles.goo(hx + 20, hy - 20, 6)
+        elif self.sparks:
+            self.particles.burst(hx + 10, hy - 20, self.sparks, 14, 260, 600, 6, drag=2)
         self._say(f"-{result.damage}", (hx, hy - 95), DAMAGE_RED, min(46, 24 + result.damage), bold=True, pop=True)
         if result.infected:
             self._say("INFECTED!", (hx, hy - 150), (140, 230, 90), 24, bold=True, pop=True)
+        if result.drained:
+            word = "HEXED" if self.enemy.kind == "warlock" else "SCORCHED"
+            self._say(f"{word}! Chin -{result.drained}", (hx, hy - 150), self.glow_hot, 24, bold=True, pop=True)
+        if result.burned:
+            sfx.play("burn")
+            self._say("BURNING!", (hx, hy - 180), (255, 150, 50), 24, bold=True, pop=True)
+            self.particles.burst(hx, hy, [(255, 150, 40), (255, 220, 90), (230, 70, 20)], 24, 320, 700, 7,
+                                 gravity=-250, drag=1.5)
+        if result.stolen:
+            fx, fy = self.foe_center
+            self._say(f"+{result.stolen} HP stolen", (fx, fy - 170), (150, 255, 160), 24, bold=True, pop=True)
+            self.particles.burst(hx, hy - 20, [self.glow, (40, 30, 60)], 16, 200, 700, 6, gravity=-120, drag=1)
+            self.particles.heal(fx, fy)
         yield from self._retreat_foe(has_attack_anim)
 
     def _retreat_foe(self, has_attack_anim):
@@ -499,16 +629,18 @@ class BattleScene:
             self.foe.play("idle")
         self.foe.angle = 0
         start = self.foe_x
-        yield from tween(240, lambda t: setattr(self, "foe_x", lerp(start, ENEMY_HOME_X, ease_out(t))))
+        yield from tween(240, lambda t: setattr(self, "foe_x", lerp(start, self.home_x, ease_out(t))))
         yield from wait(150)
 
     def _counter(self, result):
         """Perfect parry: Charlie slide-kicks the enemy."""
         self.hero.play("slide", restart=True)
         start = self.hero_x
-        target = self.foe_x - STRIKE_GAP + 15
+        target = self.foe_x - self.strike_gap + 15
         yield from tween(230, lambda t: setattr(self, "hero_x", lerp(start, target, ease_out(t))))
         cx, cy = self.foe_center
+        sfx.play("punch")
+        self._foe_flinch()
         self.foe.flash, self.foe_knock, self.hitstop = 120, 35, 80
         self.shake.add(8)
         self.particles.hit_sparks(cx - 25, cy + 30, 0.0, big=True)
@@ -518,6 +650,43 @@ class BattleScene:
         self.hero.play("idle")
         yield from self._dash_back()
 
+    # ---- boss effects ------------------------------------------------------
+    def _play_effect(self, name, x, y):
+        anim = self.boss_fx.get(name)
+        if anim:
+            self.effects.append([anim, x, y, 0.0, anim.frame_ms])
+
+    def _launch_fireball(self, travel_ms):
+        start = (self.foe_x - FIREBALL_MOUTH[0], FEET_Y - FIREBALL_MOUTH[1])
+        end = (self.hero_x + 20, FEET_Y - 85)
+        self.projectile = {"start": start, "end": end, "t": 0.0, "ms": max(1.0, travel_ms), "pos": start}
+        self.particles.burst(*start, [(255, 150, 40), (255, 220, 90)], 12, 260, 400, 6, direction=math.pi, spread=1.2)
+
+    def _update_effects(self, dt):
+        for fx in self.effects:
+            fx[3] += dt
+        self.effects = [fx for fx in self.effects if fx[3] / fx[4] < len(fx[0])]
+        p = self.projectile
+        if p:
+            p["t"] = min(1.0, p["t"] + dt / p["ms"])
+            t = p["t"]
+            (x0, y0), (x1, y1) = p["start"], p["end"]
+            p["pos"] = (lerp(x0, x1, t), lerp(y0, y1, t) - 60 * math.sin(math.pi * t))   # a little arc
+            if random.random() < dt / 25:                                                    # fiery trail
+                self.particles.burst(*p["pos"], [(255, 150, 40), (255, 220, 90), (120, 60, 40)], 1, 60, 400, 6,
+                                     gravity=-80)
+
+    def _draw_effects(self, surface):
+        for anim, x, y, elapsed, frame_ms in self.effects:
+            index = min(len(anim) - 1, int(elapsed / frame_ms))
+            image, (ax, ay) = anim.frame(index, True)
+            surface.blit(image, (x - ax, y - ay))
+        p = self.projectile
+        if p and "fireball" in self.boss_fx:
+            anim = self.boss_fx["fireball"]
+            image, (ax, ay) = anim.frame(int(self.time / anim.frame_ms) % len(anim), False)   # flying left
+            surface.blit(image, (p["pos"][0] - ax, p["pos"][1] - ay))
+
     # ---- endings -----------------------------------------------------------
     def _knockout(self):
         self.ring = None
@@ -525,6 +694,7 @@ class BattleScene:
         self.slowmo_timer = 750
         self.zoom_target = 1.18
         self.zoom_focus = self.foe_center
+        sfx.play("ko")
         self._shout("K.O.!", (255, 70, 50), 72, y=105)
         self.foe.reset_pose()
         self.foe.play("dead", restart=True)
@@ -544,6 +714,7 @@ class BattleScene:
         self.ring = None
         self.hero.reset_pose()
         self.hero.play("dead", restart=True)
+        sfx.play("defeat")
         self.shake.add(12)
         while not self.hero.finished:
             yield
@@ -551,30 +722,36 @@ class BattleScene:
         self._lose()
 
     def _win(self):
+        sfx.play("victory")
         earned = self.rules.award_candy()
         self.player.battles_won += 1
         game_state.first_battle_done = True
         self.outcome = "won"
         self.state = RESULT
-        self.end_modal.open("Battle Won!", [
-            (f"Candy earned: {earned}", CANDY_LINE),
-            (random.choice(WIN_COMMENTS), JACK_LINE),
-        ])
+        if self.enemy.boss:
+            bombs = self.rules.award_boss_loot()
+            self.end_modal.open("Boss Defeated!", [
+                Reward("candy", "candy", earned, (255, 200, 90)),
+                Reward("bomb", "bombs", bombs, (255, 170, 90)),
+            ], quote=self.spec.get("defeat_quote", "Now THAT'S a chin check."), subtitle=f"{self.enemy.name} has fallen.", mood="boss")
+            return
+        self.end_modal.open("Victory!", [Reward("candy", "candy", earned, (255, 200, 90))],
+                            quote=random.choice(WIN_COMMENTS), subtitle=f"{self.enemy.name} got chin checked.")
 
     def _lose(self):
         dropped = self.player.candy // 2
         self.player.candy -= dropped
         self.outcome = "lost"
         self.state = RESULT
-        self.end_modal.open("Chin Checked!", [
-            ("Charlie hits the dirt...", WHITE),
-            (f"Dropped {dropped} candy.", CANDY_LINE),
-            ("Jack: Get up, kid.", JACK_LINE),
-        ], button_label="Get Up", border_color=(200, 50, 50))
+        lost = [Reward("candy", "candy dropped", -dropped, (255, 110, 100))] if dropped else []
+        self.end_modal.open("Chin Checked!", lost,
+                            quote="Get up, kid. Pumpkins bounce.", subtitle="Charlie hits the dirt...",
+                            button_label="Get Up", mood="lose")
 
     def _finish(self):
         self.player.blocking = False  # don't carry a block into the next fight
         self.player.infected = 0
+        self.player.burning = 0
         if self.outcome == "lost":
             self.player.hp = self.player.max_hp
         self.ready_to_exit = True
@@ -592,12 +769,17 @@ class BattleScene:
         self.grit.draw_shadow(c, hx, FEET_Y, 0.9 - min(0.4, self.hero.lift / 250))
         show_foe = self.enemy.is_alive or not (self.is_ghost and self.foe.finished)
         if show_foe:
-            self.grit.draw_shadow(c, fx, FEET_Y, 1.0 - min(0.4, self.foe.lift / 250))
-            self.foe.draw(c, fx, FEET_Y, facing_right=self.is_ghost)   # zombies are mirrored to face Charlie
+            if self.enemy.boss and self.enemy.is_alive:
+                glow = aura(self.glow_hot if self.enemy.enraged else self.glow, self.aura_size or (240, 280))
+                glow.set_alpha(int(200 + 55 * math.sin(self.time / 300)))
+                c.blit(glow, glow.get_rect(midbottom=(fx, FEET_Y + 30)))
+            self.grit.draw_shadow(c, fx, FEET_Y, self.shadow_size * (1.0 - min(0.4, self.foe.lift / 250)))
+            self.foe.draw(c, fx, FEET_Y, facing_right=self.foe_faces_right)
         for surf, x, y, life in self.afterimages:
             surf.set_alpha(int(110 * life / 200))
             c.blit(surf, (x, y))
         self.hero.draw(c, hx, FEET_Y, self.hero_facing)
+        self._draw_effects(c)
         if self.player.blocking and self.state in (PLAYER_TURN, ACTION):
             pulse = 0.6 + 0.4 * math.sin(self.time / 150)
             pygame.draw.arc(c, (120, 180, 255), (hx + 5, FEET_Y - 150, 70, 140), -1.2, 1.2, max(2, int(5 * pulse)))

@@ -21,7 +21,7 @@ class Animation:
 
     def __init__(self, frames, anchor, frame_ms, loop=True):
         self.frames = frames                     # facing right
-        self.flipped = tuple(pygame.transform.flip(f, True, False) for f in frames)
+        self._flipped = {}                       # mirrored copies, made the first time they're needed
         self.anchor = anchor                     # (x, y) of the feet inside a frame
         self.frame_ms = frame_ms
         self.loop = loop
@@ -38,7 +38,9 @@ class Animation:
         """Returns (surface, anchor) for drawing."""
         if facing_right:
             return self.frames[index], self.anchor
-        surface = self.flipped[index]
+        surface = self._flipped.get(index)
+        if surface is None:
+            surface = self._flipped[index] = pygame.transform.flip(self.frames[index], True, False)
         return surface, (surface.get_width() - self.anchor[0], self.anchor[1])
 
     def white(self, index, facing_right):
@@ -190,8 +192,9 @@ def _sequences(folder):
     return result
 
 
-DEFAULT_FRAME_MS = {"idle": 90, "walk": 110, "run": 70, "attack": 70, "dead": 80, "jump": 60, "slide": 50}
-NON_LOOPING = {"dead", "jump", "slide"}
+DEFAULT_FRAME_MS = {"idle": 90, "walk": 110, "run": 70, "attack": 70, "dead": 80, "jump": 60, "slide": 50,
+                    "attack2": 90, "hit": 80}
+NON_LOOPING = {"dead", "jump", "slide", "hit"}
 
 
 @lru_cache(maxsize=None)
@@ -242,3 +245,87 @@ def frames_animation(frames, frame_ms, loop=True, feet_y_in_frame=None):
     anchored at bottom-center (or at feet_y_in_frame)."""
     w, h = frames[0].get_size()
     return Animation(tuple(frames), (w / 2, h if feet_y_in_frame is None else feet_y_in_frame), frame_ms, loop)
+
+
+def load_pixel_character(raw, height, speeds=None, ink=0, faces="right"):
+    """Turn raw pixel-art frames into feet-anchored Animations at a given size.
+
+    raw     {"idle": [surface, ...], "attack": [...], ...}; every frame of a
+            character shares one canvas size, and "idle" is required
+    height  how tall the idle pose should stand on screen, in pixels. The art is
+            scaled with nearest-neighbor (no blur), so it stays crisp pixel art
+    faces   "left" if the artist drew the character facing left; it's mirrored
+            here so everything in the game faces right by default
+    """
+    frame_ms = dict(DEFAULT_FRAME_MS)
+    frame_ms.update(dict(speeds or ()))
+    if faces == "left":
+        raw = {name: [pygame.transform.flip(f, True, False) for f in frames] for name, frames in raw.items()}
+
+    idle0 = raw["idle"][0]
+    idle_box = idle0.get_bounding_rect()
+    scale = height / idle_box.height
+    feet_x = _feet_center_x(idle0, idle_box)      # feet position on the original canvas
+    feet_y = idle_box.bottom
+
+    animations = {}
+    for name, frames in raw.items():
+        # Crop each animation to the area its own frames use. Big scaled-up bosses
+        # would otherwise carry a lot of empty canvas (and memory) around.
+        used = None
+        for f in frames:
+            box = f.get_bounding_rect()
+            if box.width:
+                used = box if used is None else used.union(box)
+        used = (used or idle_box).inflate(4, 4).clip(idle0.get_rect())
+        size = (round(used.width * scale), round(used.height * scale))
+        anchor = ((feet_x - used.left) * scale + ink, (feet_y - used.top) * scale + ink)
+        prepared = []
+        for f in frames:
+            img = pygame.transform.scale(f.subsurface(used), size)
+            prepared.append(_ink(img, ink) if ink else img)
+        animations[name] = Animation(tuple(prepared), anchor, frame_ms.get(name, 90),
+                                     loop=name not in NON_LOOPING)
+    return animations
+
+
+def slice_strip(path, frame_w=None, frame_h=None):
+    """Frames from a one-row sprite strip (square frames unless a size is given)."""
+    sheet = pygame.image.load(IMAGES_DIR / path).convert_alpha()
+    frame_h = frame_h or sheet.get_height()
+    frame_w = frame_w or frame_h
+    return [sheet.subsurface((i * frame_w, 0, frame_w, frame_h)) for i in range(sheet.get_width() // frame_w)]
+
+
+def slice_grid(path, frame_w, frame_h, start, count):
+    """`count` frames from a grid sprite sheet, counting left-to-right, top-to-bottom from `start`."""
+    sheet = pygame.image.load(IMAGES_DIR / path).convert_alpha()
+    columns = sheet.get_width() // frame_w
+    return [sheet.subsurface(((i % columns) * frame_w, (i // columns) * frame_h, frame_w, frame_h))
+            for i in range(start, start + count)]
+
+
+def load_strip_character(folder, height, strips, speeds=None, ink=0, faces="right"):
+    """A character drawn as one-row strips, one PNG per animation (Warlock, Fire Worm).
+
+    strips  ((name, filename), ...) e.g. (("idle", "Idle.png"), ("attack", "Attack1.png"))
+    """
+    raw = {name: slice_strip(f"{folder}/{filename}") for name, filename in strips}
+    return load_pixel_character(raw, height, speeds, ink, faces)
+
+
+def effect_animation(frames, scale, frame_ms, anchor="midbottom", faces="right"):
+    """A one-shot effect (spell, fireball, explosion) scaled like its boss.
+    anchor "midbottom" puts the effect's feet on the spot you draw it at;
+    "center" centers it there."""
+    if faces == "left":
+        frames = [pygame.transform.flip(f, True, False) for f in frames]
+    used = None
+    for f in frames:
+        box = f.get_bounding_rect()
+        if box.width:
+            used = box if used is None else used.union(box)
+    size = (round(used.width * scale), round(used.height * scale))
+    prepared = tuple(pygame.transform.scale(f.subsurface(used), size) for f in frames)
+    point = (size[0] / 2, size[1]) if anchor == "midbottom" else (size[0] / 2, size[1] / 2)
+    return Animation(prepared, point, frame_ms, loop=False)

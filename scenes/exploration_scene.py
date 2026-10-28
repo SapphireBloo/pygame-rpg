@@ -11,6 +11,8 @@ from core.grit import Grit
 from core.levels import LEVELS
 from core.player_hud import PlayerHUD
 from core.portal import Portal
+from core import sfx
+from core.boss_encounter import BossEncounter
 from core.roaming_zombie import RoamingZombie, GRAB_RANGE
 from core.settings import (
     SCREEN_WIDTH, GROUND_Y, FEET_Y, WALK_SPEED, RUN_SPEED, SLIDE_SPEED, CAMERA_LEAD,
@@ -21,6 +23,7 @@ from core.ui import get_font, draw_button, HEAL_GREEN, WHITE
 
 GHOST_SPAWN_FRAME_MS = 80
 JUMP_HEIGHT = 85           # pixels
+BOSS_SCREEN_X = 590    # where a talking boss's feet sit on screen
 HERO_HALF_WIDTH = 75       # player.x is the left edge of Charlie's old 150px box; feet are 75px in
 CHARLIE = "Chin Check Charlie"
 
@@ -115,13 +118,17 @@ class ExplorationScene:
         zombie_specs = self.level.get("zombies", [])
         self.zombies = [RoamingZombie(GHOST_SPACING * (count + i), spec)
                         for i, spec in enumerate(zombie_specs, start=1)]
-        self.exit_x = GHOST_SPACING * (count + len(zombie_specs) + 1)
+        boss_spec = self.level.get("boss")
+        boss_x = GHOST_SPACING * (count + len(zombie_specs) + 1)
+        self.boss = BossEncounter(boss_x, boss_spec) if boss_spec else None
+        self.exit_x = boss_x + 600 if self.boss else boss_x
         next_name = "???" if self.is_last_level else LEVELS[index + 1]["name"]
         self.portal = Portal(self.exit_x, GROUND_Y, self.level["accent"], f"{next_name} >")
         self.exit_reached = False   # main.py starts the transition when this flips
 
         self.player.x = 50.0
         self.camera_offset = 0
+        self.boss_pan = 0.0        # extra camera slide so a talking boss is fully on screen
         self.floating_texts.clear()
         self.world_texts.clear()
         self.facing_right = True
@@ -142,7 +149,7 @@ class ExplorationScene:
     @property
     def movement_locked(self):
         jack_talking = self.whisper_jack is not None and not self.whisper_jack.message_done
-        grabbed = any(z.grabbing for z in self.zombies)
+        grabbed = any(z.grabbing for z in self.zombies) or bool(self.boss and self.boss.grabbing)
         return jack_talking or grabbed
 
     def _start_jack(self, messages, on_done):
@@ -175,6 +182,8 @@ class ExplorationScene:
 
         if self.whisper_jack:
             self.whisper_jack.handle_event(event)
+        if self.boss:
+            self.boss.handle_event(event)
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.shop_button.collidepoint(event.pos):
             self.shop.open()
@@ -192,6 +201,7 @@ class ExplorationScene:
         self.action = name
         self.action_time = 0
         self.hero.play(name, restart=True)
+        sfx.play(name)
 
     @property
     def sliding(self):
@@ -249,6 +259,7 @@ class ExplorationScene:
             speed = RUN_SPEED if running else WALK_SPEED
             self.player.x = max(0.0, self.player.x + direction * speed * dt / 1000)
         self.camera_offset = max(0, int(self.player.x) - CAMERA_LEAD)
+        self._frame_boss(dt)
 
         self._animate_hero(dt, running)
 
@@ -256,6 +267,10 @@ class ExplorationScene:
             ghost.update(dt, self.player.x, len(self.ghost_spawn_frames), self.sliding)
 
         hero_center = self.hero_feet_x
+        if self.boss:
+            self.boss.update(dt, hero_center)
+            if not self.boss.defeated:      # can't walk through the boss
+                self.player.x = min(self.player.x, self.boss.x - HERO_HALF_WIDTH - 140)
         for zombie in self.zombies:
             if self.sliding and not zombie.defeated and not zombie.grabbing and \
                     abs(zombie.x - hero_center) < GRAB_RANGE:
@@ -264,14 +279,17 @@ class ExplorationScene:
             groan = zombie.update(dt, hero_center)
             on_screen = 0 < zombie.x - self.camera_offset < SCREEN_WIDTH
             if groan and on_screen:
+                sfx.play("zombie_groan", 0.5)
                 self.world_texts.append(CombatText(groan, zombie.x - 45, FEET_Y - 170, (150, 210, 150),
                                                    lifespan=2200, size=18))
 
         if self.portal:
             self.portal.update(dt)
             self.player.x = min(self.player.x, self.exit_x)   # can't walk past the portal
-            cleared = all(g.defeated for g in self.ghosts) and all(z.defeated for z in self.zombies)
+            cleared = all(f.defeated for f in self._foes())
             if cleared and self.player.x >= self.exit_x - 40 and not self.movement_locked:
+                if not self.exit_reached:
+                    sfx.play("portal")
                 self.exit_reached = True
 
     def _animate_hero(self, dt, running):
@@ -293,7 +311,7 @@ class ExplorationScene:
     def take_battle_trigger(self):
         """Return the enemy spec of a ghost/zombie that's ready to fight (and
         mark it used), else None. Adds "first_strike" if Charlie slid into it."""
-        for foe in self.ghosts + self.zombies:
+        for foe in self._foes():
             if foe.ready_for_battle and not foe.defeated:
                 foe.defeated = True
                 foe.ready_for_battle = False
@@ -305,6 +323,17 @@ class ExplorationScene:
                 return spec
         return None
 
+    def _frame_boss(self, dt):
+        """While the boss talks, glide the camera so he stands fully on screen."""
+        want = 0.0
+        if self.boss and self.boss.grabbing:
+            want = max(0.0, self.boss.x - BOSS_SCREEN_X - self.camera_offset)
+        self.boss_pan += (want - self.boss_pan) * min(1.0, dt / 180)
+        self.camera_offset += int(self.boss_pan)
+
+    def _foes(self):
+        return self.ghosts + self.zombies + ([self.boss] if self.boss else [])
+
     # ---- drawing -------------------------------------------------------
     def draw(self):
         self._draw_background()
@@ -315,6 +344,9 @@ class ExplorationScene:
             if not zombie.defeated:
                 self.grit.draw_shadow(self.screen, zombie.x - self.camera_offset, FEET_Y)
             zombie.draw(self.screen, self.camera_offset, FEET_Y)
+        if self.boss and not self.boss.defeated:
+            self.grit.draw_shadow(self.screen, self.boss.x - self.camera_offset, FEET_Y, self.boss.shadow_size)
+            self.boss.draw(self.screen, self.camera_offset, FEET_Y)
 
         hero_x = self.hero_feet_x - self.camera_offset
         self.grit.draw_shadow(self.screen, hero_x, FEET_Y, 0.9 - min(0.4, self.hero.lift / 250))
@@ -330,6 +362,8 @@ class ExplorationScene:
 
         if self.whisper_jack:
             self.whisper_jack.draw(self.screen, self.camera_offset)
+        if self.boss:
+            self.boss.draw_bubble(self.screen, self.camera_offset, FEET_Y)
 
         for text in self.floating_texts:
             text.draw(self.screen)

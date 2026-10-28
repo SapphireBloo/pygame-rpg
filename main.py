@@ -52,7 +52,7 @@ def main():
 
     running = True
     while running:
-        dt = clock.tick(FPS)  # milliseconds since last frame
+        dt = min(clock.tick(FPS), 50)  # ms since last frame; capped so a loading hitch doesn't skip fades
         scene = transition or battle or exploration
 
         for event in pygame.event.get():

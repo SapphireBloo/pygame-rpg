@@ -32,11 +32,14 @@ class PlayerHUD:
 
         name = f"{p.name} - Lv {p.level}"
         self.screen.blit(render(name, True, WHITE), (x, y))
-        if p.infected:
-            tag = self.small.render(f"INFECTED ({p.infected})", True, (140, 230, 90))
-            self.screen.blit(tag, (x + self.font.size(name)[0] + 12, y + 5))
+        tag_x = x + self.font.size(name)[0] + 12
+        for turns, label, color in ((p.infected, "INFECTED", (140, 230, 90)), (p.burning, "BURNING", (255, 150, 50))):
+            if turns:
+                tag = self.small.render(f"{label} ({turns})", True, color)
+                self.screen.blit(tag, (tag_x, y + 5))
+                tag_x += tag.get_width() + 10
 
-        hp_color = (110, 190, 60) if p.infected else (0, 200, 0)
+        hp_color = (230, 130, 40) if p.burning else (110, 190, 60) if p.infected else (0, 200, 0)
         draw_bar(self.screen, x, y + 25, self.bar_width, 20, self.shown_hp, p.max_hp, hp_color)
         self.screen.blit(render(f"HP: {p.hp}/{p.max_hp}", True, WHITE), (x, y + 50))
 

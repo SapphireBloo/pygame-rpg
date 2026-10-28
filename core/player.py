@@ -31,6 +31,7 @@ class Player:
 
         self.chin_meter = 0           # 0-100; full unlocks the Chin Check finisher
         self.infected = 0             # turns of zombie infection left (loses HP each turn)
+        self.burning = 0              # turns of fire left (Fire Worm / Demon; loses HP each turn)
 
     # ---- status --------------------------------------------------------
     @property
@@ -66,18 +67,19 @@ class Player:
         return amount, blocked
 
     def can_heal(self):
-        return self.candy >= self.HEAL_COST and (self.hp < self.max_hp or self.infected > 0)
+        return self.candy >= self.HEAL_COST and (self.hp < self.max_hp or self.infected > 0 or self.burning > 0)
 
     def heal(self):
         """Eat candy to heal. Returns HP restored (0 if nothing happened).
 
-        Won't spend candy at full HP (unless it's to cure an infection).
+        Won't spend candy at full HP (unless it's to cure an infection or put out a fire).
         """
         if not self.can_heal():
             return 0
         amount = self.HEAL_BOOST_AMOUNT if self.has("heal_boost") else self.HEAL_AMOUNT
         self.candy -= self.HEAL_COST
         self.infected = 0              # candy cures zombie infection
+        self.burning = 0               # ...and puts out fires
         before = self.hp
         self.hp = min(self.max_hp, self.hp + amount)
         return self.hp - before

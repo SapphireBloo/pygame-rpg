@@ -1,5 +1,6 @@
 import pygame
 
+from core import sfx
 from core.ui import get_font, GOLD, GREY, blit_centered
 
 JAB, HAYMAKER, CHIN_CHECK, HEAL, BOMB = "Jab", "Haymaker", "Chin Check", "Heal", "Bomb"
@@ -42,9 +43,12 @@ class CombatOptions:
             return None
         if event.key in (pygame.K_LEFT, pygame.K_a):
             self.selected_index = (self.selected_index - 1) % len(self.options)
+            sfx.play("ui_move", 0.5)
         elif event.key in (pygame.K_RIGHT, pygame.K_d):
             self.selected_index = (self.selected_index + 1) % len(self.options)
+            sfx.play("ui_move", 0.5)
         elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
+            sfx.play("ui_select", 0.7)
             return self.options[self.selected_index]
         return None
 

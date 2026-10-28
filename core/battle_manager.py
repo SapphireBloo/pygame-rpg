@@ -28,6 +28,8 @@ HURT_METER = 4               # getting hit fires Charlie up a little
 COUNTER_MULT = 0.7           # slide-kick counter after a parry
 INFECTION_TURNS = 3
 INFECTION_DAMAGE = 4
+BURN_TURNS = 3               # Fire Worm / Demon burns: hurts more than infection
+BURN_DAMAGE = 6
 FIRST_STRIKE_DAMAGE = 15
 FIRST_STRIKE_METER = 20
 
@@ -51,6 +53,9 @@ class DefenseResult:
     stance_block: bool = False
     counter: int = 0
     infected: bool = False
+    burned: bool = False        # set on fire (Fire Worm / Demon)
+    drained: int = 0            # Chin meter lost to a Hex Storm / Hellfire Cleave
+    stolen: int = 0             # HP the Bringer of Death took for himself
     killed: bool = False
 
 
@@ -111,14 +116,33 @@ class BattleManager:
                 p.add_meter(BLOCK_METER)
             result.stance_block = p.blocking
             result.damage, _ = p.take_damage(raw)
-            if result.damage:
+            heavy = e.next_heavy
+            if result.damage and heavy and e.meter_drain:
+                result.drained = min(p.chin_meter, e.meter_drain)
+                p.add_meter(-e.meter_drain)
+            elif result.damage:
                 p.add_meter(HURT_METER)
-                if e.infect_chance and (e.next_heavy or random.random() < e.infect_chance):
+                if e.infect_chance and (heavy or random.random() < e.infect_chance):
                     result.infected = True
                     p.infected = INFECTION_TURNS
+            if result.damage and e.burns and (heavy or random.random() < e.burn_chance):
+                result.burned = True
+                p.burning = BURN_TURNS
+            if result.damage and heavy and e.lifesteal:
+                result.stolen = e.heal(round(result.damage * e.lifesteal))
         result.killed = not p.is_alive
         e.plan_next_attack()
         return result
+
+    def burn_tick(self):
+        """Start of Charlie's turn: burning drains HP. Returns damage taken."""
+        p = self.player
+        if p.burning <= 0:
+            return 0
+        p.burning -= 1
+        dmg = min(BURN_DAMAGE, p.hp)
+        p.hp -= dmg
+        return dmg
 
     def infection_tick(self):
         """Start of Charlie's turn: infection drains HP. Returns damage taken."""
@@ -129,6 +153,13 @@ class BattleManager:
         dmg = min(INFECTION_DAMAGE, p.hp)
         p.hp -= dmg
         return dmg
+
+    BOSS_BOMB_REWARD = 2
+
+    def award_boss_loot(self):
+        """Bosses also drop bombs. Returns how many."""
+        self.player.inventory["bomb"] = self.player.inventory.get("bomb", 0) + self.BOSS_BOMB_REWARD
+        return self.BOSS_BOMB_REWARD
 
     def award_candy(self):
         """Give the victory candy. Returns the amount actually earned."""
