@@ -1,256 +1,353 @@
+import math
+
 import pygame
-import os
-import random
-from core.player import Player
+
+from core import game_state
+from core.animation import AnimatedSprite, load_gameart2d_character
+from core.assets import load_frames, load_sprite_sheet, load_background, tinted
+from core.candy_shop_modal import CandyShopModal
+from core.combat_text import CombatText
+from core.grit import Grit
+from core.levels import LEVELS
 from core.player_hud import PlayerHUD
+from core.portal import Portal
+from core.roaming_zombie import RoamingZombie, GRAB_RANGE
+from core.settings import (
+    SCREEN_WIDTH, GROUND_Y, FEET_Y, WALK_SPEED, RUN_SPEED, SLIDE_SPEED, CAMERA_LEAD,
+    GHOST_SPACING, GHOST_TRIGGER_RANGE, HERO_HEIGHT, CHARACTER_INK,
+)
 from core.skeleton_animation import SkeletonAnimation
-from core import game_state  # import game_state here
-from core.candy_shop_modal import CandyShopModal  # NEW IMPORT
+from core.ui import get_font, draw_button, HEAL_GREEN, WHITE
+
+GHOST_SPAWN_FRAME_MS = 80
+JUMP_HEIGHT = 85           # pixels
+HERO_HALF_WIDTH = 75       # player.x is the left edge of Charlie's old 150px box; feet are 75px in
+CHARLIE = "Chin Check Charlie"
+
+JACK_INTRO = [
+    f"Well, well, well... look who we have here, {CHARLIE}.",
+    "The shadows whisper my name... I'm Whisper Jack.",
+    "I'm here to guide you, and maybe keep you on your toes.",
+    "Use A and D to walk. Hold Shift to run, W to jump, S to slide.",
+    "Slide right into a monster and you'll get the first punch in.",
+    "And watch out for the candy... if you want me around.",
+]
+
+JACK_AFTER_FIRST_BATTLE = [
+    f"Well, well... look who finally got some candy, {CHARLIE}!",
+    "But you look beat up. Hitting 'H' might sweeten the deal.",
+    "Don't make me come back just to patch you up again...",
+    "Don't eat too much candy though... you'll need it for the Candy Shop.",
+]
+
 
 class Ghost:
-    def __init__(self, x, y, spawn_frames, enemy_img):
+    """A hidden ghost that materializes when the hero walks close, then starts a battle."""
+
+    def __init__(self, x, spec):
         self.x = x
-        self.y = y
-        self.spawn_frames = spawn_frames
-        self.enemy_img = enemy_img
+        self.y = GROUND_Y
+        self.spec = spec          # enemy stats handed to the battle
+        self.first_strike = False # Charlie slid into it
         self.spawning = False
         self.spawn_index = 0
         self.spawn_timer = 0
-        self.spawn_speed = 80
-        self.spawn_complete = False
-        self.visible = True
-        self.trigger_battle = False
+        self.defeated = False
+        self.ready_for_battle = False
+
+    def update(self, dt, hero_x, frame_count, sliding=False):
+        if self.defeated or self.ready_for_battle:
+            return
+        if not self.spawning and abs(hero_x - self.x) < GHOST_TRIGGER_RANGE:
+            self.spawning = True
+            self.first_strike = sliding
+        if self.spawning:
+            self.spawn_timer += dt
+            if self.spawn_timer >= GHOST_SPAWN_FRAME_MS:
+                self.spawn_timer = 0
+                self.spawn_index += 1
+                if self.spawn_index >= frame_count:
+                    self.spawning = False
+                    self.ready_for_battle = True
+
 
 class ExplorationScene:
-    def __init__(self, screen, player):
+    def __init__(self, screen, player, level_index=0):
         self.screen = screen
         self.player = player
-        self.font = pygame.font.SysFont("consolas", 22)
+        self.font = get_font(22)
+        self.small_font = get_font(16)
 
-        self.bg_tile = pygame.image.load(os.path.join("assets", "images", "backgrounds", "bg_0.png")).convert()
-        self.bg_tile = pygame.transform.scale(self.bg_tile, (800, 600))
-        self.bg_width = self.bg_tile.get_width()
+        self.hero = AnimatedSprite(load_gameart2d_character("charlie", HERO_HEIGHT, ink=CHARACTER_INK))
+        self.is_walking = False
+        self.facing_right = True
+        self.action = None         # "jump" or "slide" while one is playing
+        self.action_time = 0
+        self.grit = Grit(screen.get_size())
+
+        self.skeleton_frames = load_frames("Skeleton", flip_x=True)
+        self.floating_texts = []   # screen-positioned (heal numbers over Charlie)
+        self.world_texts = []      # world-positioned (zombie groans), scroll with the camera
+        self.player_hud = PlayerHUD(screen, player)
+        self.shop = CandyShopModal(screen, player)
+        self.shop_button = pygame.Rect(650, 10, 145, 40)
+
+        self.finished = False   # True after the last level's exit (free roam)
+        self.load_level(level_index)
+
+    # ---- levels --------------------------------------------------------
+    @property
+    def is_last_level(self):
+        return self.level_index == len(LEVELS) - 1
+
+    def load_level(self, index):
+        """Reset the world for LEVELS[index]. Charlie keeps HP, candy, and upgrades."""
+        self.level_index = index
+        self.level = LEVELS[index]
+        self.background = load_background(self.level["background"])
+        self.grit.set_level(self.level)
+        self.ghost_spawn_frames = tinted(load_sprite_sheet("ghost_spawn/ghost_spawn.png", 32, 32),
+                                         self.level.get("ghost_tint"))
+
+        count = self.level["ghosts"]
+        ghost_spec = {"sprite": "ghost", **self.level["enemy"]}
+        self.ghosts = [Ghost(GHOST_SPACING * i, ghost_spec) for i in range(1, count + 1)]
+        zombie_specs = self.level.get("zombies", [])
+        self.zombies = [RoamingZombie(GHOST_SPACING * (count + i), spec)
+                        for i, spec in enumerate(zombie_specs, start=1)]
+        self.exit_x = GHOST_SPACING * (count + len(zombie_specs) + 1)
+        next_name = "???" if self.is_last_level else LEVELS[index + 1]["name"]
+        self.portal = Portal(self.exit_x, GROUND_Y, self.level["accent"], f"{next_name} >")
+        self.exit_reached = False   # main.py starts the transition when this flips
+
+        self.player.x = 50.0
         self.camera_offset = 0
+        self.floating_texts.clear()
+        self.world_texts.clear()
+        self.facing_right = True
+        self.action = None
+        self.hero.lift = 0
+        self.whisper_jack = None    # the active cutscene, if any
+        self.on_jack_done = None    # callback run when he finishes talking
+        if self.level["arrival"]:
+            self._start_jack(self.level["arrival"], None)
 
-        self.hero_idle_frames = self.load_frames(os.path.join("assets", "images", "hero_idle"))
-        self.hero_walk_frames = self.load_frames(os.path.join("assets", "images", "hero_walk"))
-        self.hero_index = 0
-        self.hero_walk_index = 0
-        self.last_update = pygame.time.get_ticks()
-        self.hero_speed = 200
+    def finish(self):
+        """Called after the ending card: the portal goes away and you can roam."""
+        self.finished = True
+        self.portal = None
+        self.exit_reached = False
 
-        self.player.y = 400
-        self.velocity = 5
+    # ---- Whisper Jack cutscenes ----------------------------------------
+    @property
+    def movement_locked(self):
+        jack_talking = self.whisper_jack is not None and not self.whisper_jack.message_done
+        grabbed = any(z.grabbing for z in self.zombies)
+        return jack_talking or grabbed
 
-        spawn_frames = self.load_sprite_sheet(
-            os.path.join("assets", "images", "ghost_spawn", "ghost_spawn.png"),
-            frame_width=32,
-            frame_height=32,
-            scale=(150, 150)
-        )
+    def _start_jack(self, messages, on_done):
+        spawn_x = self.camera_offset + SCREEN_WIDTH - 200
+        self.whisper_jack = SkeletonAnimation(spawn_x, GROUND_Y, self.skeleton_frames, messages)
+        self.on_jack_done = on_done
 
-        fallback_path = os.path.join("assets", "images", "goblin.png")
-        if os.path.exists(fallback_path):
-            enemy_img = pygame.image.load(fallback_path).convert_alpha()
-            enemy_img = pygame.transform.scale(enemy_img, (150, 150))
-        else:
-            enemy_img = None
+    def _check_cutscenes(self, trying_to_move):
+        # A Jack who's finished talking (even if still sinking) can be replaced
+        if not trying_to_move or (self.whisper_jack and not self.whisper_jack.message_done):
+            return
+        if not game_state.whisper_jack_exploration_intro_done:
+            self._start_jack(JACK_INTRO, self._intro_finished)
+        elif game_state.first_battle_done and not game_state.whisper_jack_second_intro_done:
+            self._start_jack(JACK_AFTER_FIRST_BATTLE, self._second_intro_finished)
 
-        ghost_positions = [800 * i for i in range(1, 11)]
-        self.ghosts = [
-            Ghost(x, 400, spawn_frames, enemy_img)
-            for x in ghost_positions
-        ]
+    @staticmethod
+    def _intro_finished():
+        game_state.whisper_jack_exploration_intro_done = True
 
-        self.skeleton_frames = self.load_frames(os.path.join("assets", "images", "Skeleton"))
-        self.skeleton_frames = [pygame.transform.flip(frame, True, False) for frame in self.skeleton_frames]
-        self.skeleton_animations = []
-        self.skeleton_intro_triggered = False
-        self.skeleton_intro_done = False
-        self.movement_locked = False
-        self.skeleton_second_intro_triggered = False
-        self.skeleton_second_intro_done = False
+    @staticmethod
+    def _second_intro_finished():
+        game_state.whisper_jack_second_intro_done = True
 
-        self.player_hud = PlayerHUD(self.screen, self.font, self.player)
-
-        self.shop_modal = CandyShopModal(screen, player)
-        self.show_shop_button = True
-        self.shop_button_rect = pygame.Rect(650, 10, 150, 40)
-
-
-    def load_frames(self, folder_path, scale=(150, 150)):
-        frames = []
-        if not os.path.exists(folder_path):
-            return frames
-        for filename in sorted(os.listdir(folder_path)):
-            if filename.endswith(".png"):
-                path = os.path.join(folder_path, filename)
-                image = pygame.image.load(path).convert_alpha()
-                image = pygame.transform.scale(image, scale)
-                frames.append(image)
-        return frames
-
-    def load_sprite_sheet(self, sheet_path, frame_width, frame_height, scale=(150, 150)):
-        sheet = pygame.image.load(sheet_path).convert_alpha()
-        sheet_width, _ = sheet.get_size()
-        frames = []
-        for i in range(sheet_width // frame_width):
-            frame = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
-            frame.blit(sheet, (0, 0), (i * frame_width, 0, frame_width, frame_height))
-            frame = pygame.transform.scale(frame, scale)
-            frames.append(frame)
-        return frames
-
-    def spawn_skeleton_intro(self, x, y):
-        charlie_name = "Chin Check Charlie"
-        intro_messages = [
-            f"Well, well, well... look who we have here, {charlie_name}.",
-            "The shadows whisper my name... I'm Whisper Jack.",
-            "I’m here to guide you — and maybe keep you on your toes.",
-            "Use A and D to walk. And watch out for the candy... if you want me around."
-        ]
-        anim = SkeletonAnimation(x, y, self.skeleton_frames, messages=intro_messages, frame_delay=250)
-        self.skeleton_animations.append(anim)
-
-    def spawn_skeleton_second_intro(self, x, y):
-        charlie_name = "Chin Check Charlie"
-        second_intro_messages = [
-            f"Well, well... look who finally got some candy, {charlie_name}!",
-            "But you look beat up. Hitting 'H' might sweeten the deal.",
-            "Don't make me come back just to patch you up again...",
-            "Don't eat too much candy though... you'll need it for the Candy Shop ."
-        ]
-        anim = SkeletonAnimation(x, y, self.skeleton_frames, messages=second_intro_messages, frame_delay=250)
-        self.skeleton_animations.append(anim)
-
+    # ---- input ---------------------------------------------------------
     def handle_event(self, event):
-        if self.shop_modal.visible:
-            self.shop_modal.update()
-            self.shop_modal.handle_event(event)
+        if self.shop.visible:
+            self.shop.handle_event(event)
             return
 
-        for anim in self.skeleton_animations:
-            anim.handle_event(event)
+        if self.whisper_jack:
+            self.whisper_jack.handle_event(event)
 
-        if event.type == pygame.MOUSEBUTTONDOWN and self.shop_button_rect.collidepoint(event.pos):
-            self.shop_modal.open()
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.shop_button.collidepoint(event.pos):
+            self.shop.open()
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_h:
+                self._eat_candy()
+            elif event.key in (pygame.K_w, pygame.K_UP):
+                self._start_action("jump")
+            elif event.key in (pygame.K_s, pygame.K_DOWN):
+                self._start_action("slide")
 
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_h:
-            heal_amount = self.player.heal()
-            if heal_amount > 0:
-                print(f"Healed {heal_amount} HP by eating candy. Candy left: {self.player.candy}")
+    def _start_action(self, name):
+        if self.action or self.movement_locked or not self.hero.has(name):
+            return
+        self.action = name
+        self.action_time = 0
+        self.hero.play(name, restart=True)
 
+    @property
+    def sliding(self):
+        return self.action == "slide"
 
-    def update(self, keys):
-        if self.shop_modal.visible:
+    @property
+    def hero_feet_x(self):
+        return self.player.x + HERO_HALF_WIDTH
+
+    def _eat_candy(self):
+        hero_x = self.hero_feet_x - self.camera_offset - 35
+        if self.player.hp >= self.player.max_hp:
+            text, color = "Already full HP", (255, 230, 120)
+        else:
+            healed = self.player.heal()
+            text, color = (f"+{healed} HP", HEAL_GREEN) if healed else ("No candy!", (255, 230, 120))
+        self.floating_texts.append(CombatText(text, hero_x, self.player.y - 20, color))
+
+    # ---- update --------------------------------------------------------
+    def update(self, keys, dt):
+        self.player_hud.update(dt)
+        for text in self.floating_texts + self.world_texts:
+            text.update(dt)
+        self.floating_texts = [t for t in self.floating_texts if t.is_alive()]
+        self.world_texts = [t for t in self.world_texts if t.is_alive()]
+
+        self.grit.update(dt)
+        if self.shop.visible:
+            self.shop.update(dt)
+            self.is_walking = False
             return
 
-        now = pygame.time.get_ticks()
-        moving = keys[pygame.K_a] or keys[pygame.K_d]
+        # Update Jack first so a finished talk marks its story flag before we
+        # decide whether another cutscene should start.
+        if self.whisper_jack:
+            self.whisper_jack.update(dt)
+            if self.whisper_jack.message_done and self.on_jack_done:
+                self.on_jack_done()
+                self.on_jack_done = None
+            if not self.whisper_jack.active:
+                self.whisper_jack = None
 
-        if not self.skeleton_intro_triggered and moving and not game_state.whisper_jack_exploration_intro_done:
-            screen_width = self.screen.get_width()
-            spawn_x = self.camera_offset + screen_width - 200
-            self.spawn_skeleton_intro(spawn_x, 400)
-            self.skeleton_intro_triggered = True
-            self.movement_locked = True
+        direction = int(bool(keys[pygame.K_d] or keys[pygame.K_RIGHT])) - int(bool(keys[pygame.K_a] or keys[pygame.K_LEFT]))
+        self._check_cutscenes(direction != 0)
 
-        if (game_state.first_battle_done
-            and not self.skeleton_second_intro_triggered
-            and moving
-            and game_state.whisper_jack_exploration_intro_done):
-            screen_width = self.screen.get_width()
-            spawn_x = self.camera_offset + screen_width - 200
-            self.spawn_skeleton_second_intro(spawn_x, 400)
-            self.skeleton_second_intro_triggered = True
-            self.movement_locked = True
+        running = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        self.is_walking = direction != 0 and not self.movement_locked
+        if self.sliding:
+            # Slides carry Charlie forward fast, slowing toward the end
+            t = min(1.0, self.action_time / self.hero.current.duration)
+            step = (1 if self.facing_right else -1) * SLIDE_SPEED * (1 - 0.6 * t) * dt / 1000
+            self.player.x = max(0.0, self.player.x + step)
+        elif self.is_walking:
+            self.facing_right = direction > 0
+            speed = RUN_SPEED if running else WALK_SPEED
+            self.player.x = max(0.0, self.player.x + direction * speed * dt / 1000)
+        self.camera_offset = max(0, int(self.player.x) - CAMERA_LEAD)
 
-        if now - self.last_update > self.hero_speed:
-            if moving and self.hero_walk_frames:
-                self.hero_walk_index = (self.hero_walk_index + 1) % len(self.hero_walk_frames)
+        self._animate_hero(dt, running)
+
+        for ghost in self.ghosts:
+            ghost.update(dt, self.player.x, len(self.ghost_spawn_frames), self.sliding)
+
+        hero_center = self.hero_feet_x
+        for zombie in self.zombies:
+            if self.sliding and not zombie.defeated and not zombie.grabbing and \
+                    abs(zombie.x - hero_center) < GRAB_RANGE:
+                zombie.first_strike = True            # slid right into it: Charlie hits first
+                zombie.ready_for_battle = True
+            groan = zombie.update(dt, hero_center)
+            on_screen = 0 < zombie.x - self.camera_offset < SCREEN_WIDTH
+            if groan and on_screen:
+                self.world_texts.append(CombatText(groan, zombie.x - 45, FEET_Y - 170, (150, 210, 150),
+                                                   lifespan=2200, size=18))
+
+        if self.portal:
+            self.portal.update(dt)
+            self.player.x = min(self.player.x, self.exit_x)   # can't walk past the portal
+            cleared = all(g.defeated for g in self.ghosts) and all(z.defeated for z in self.zombies)
+            if cleared and self.player.x >= self.exit_x - 40 and not self.movement_locked:
+                self.exit_reached = True
+
+    def _animate_hero(self, dt, running):
+        if self.action:
+            self.action_time += dt
+            duration = self.hero.current.duration
+            if self.action == "jump":
+                self.hero.lift = JUMP_HEIGHT * math.sin(math.pi * min(1.0, self.action_time / duration))
+            if self.action_time >= duration:
+                self.action = None
+                self.hero.lift = 0
+        if not self.action:
+            if self.is_walking:
+                self.hero.play("run" if running and self.hero.has("run") else "walk")
             else:
-                self.hero_index = (self.hero_index + 1) % len(self.hero_idle_frames)
-            self.last_update = now
+                self.hero.play("idle")
+        self.hero.update(dt)
 
-        if not self.movement_locked:
-            if keys[pygame.K_d]:
-                self.player.x += self.velocity
-            if keys[pygame.K_a]:
-                self.player.x -= self.velocity
-            self.player.x = max(0, self.player.x)
-
-        self.camera_offset = max(0, self.player.x - 250)
-
-        for ghost in self.ghosts:
-            if ghost.visible and abs(self.player.x - ghost.x) < 100:
-                if not ghost.spawning and not ghost.spawn_complete:
-                    ghost.spawning = True
-
-            if ghost.spawning:
-                if now - ghost.spawn_timer > ghost.spawn_speed:
-                    ghost.spawn_index += 1
-                    ghost.spawn_timer = now
-                    if ghost.spawn_index >= len(ghost.spawn_frames):
-                        ghost.spawning = False
-                        ghost.spawn_complete = True
-                        ghost.trigger_battle = True
-
-        dt = now - self.last_update
-        for anim in self.skeleton_animations:
-            anim.update(dt)
-        self.skeleton_animations = [a for a in self.skeleton_animations if a.active or not a.message_done]
-
-        if self.skeleton_intro_triggered and not self.skeleton_intro_done:
-            if all(a.message_done for a in self.skeleton_animations):
-                self.skeleton_intro_done = True
-                self.movement_locked = False
-                game_state.whisper_jack_exploration_intro_done = True
-
-        if self.skeleton_second_intro_triggered and not self.skeleton_second_intro_done:
-            if all(a.message_done for a in self.skeleton_animations):
-                self.skeleton_second_intro_done = True
-                self.movement_locked = False
-                game_state.whisper_jack_second_intro_done = True
-
-    def check_battle_trigger(self):
-        for ghost in self.ghosts:
-            if ghost.visible and ghost.trigger_battle:
-                return ghost
+    def take_battle_trigger(self):
+        """Return the enemy spec of a ghost/zombie that's ready to fight (and
+        mark it used), else None. Adds "first_strike" if Charlie slid into it."""
+        for foe in self.ghosts + self.zombies:
+            if foe.ready_for_battle and not foe.defeated:
+                foe.defeated = True
+                foe.ready_for_battle = False
+                self.action = None
+                self.hero.lift = 0
+                spec = dict(foe.spec)
+                if getattr(foe, "first_strike", False):
+                    spec["first_strike"] = True
+                return spec
         return None
 
+    # ---- drawing -------------------------------------------------------
     def draw(self):
-        start_x = -self.camera_offset % self.bg_width
-        for i in range(3):
-            self.screen.blit(self.bg_tile, (start_x + i * self.bg_width - self.bg_width, 0))
+        self._draw_background()
+        if self.portal:
+            self.portal.draw(self.screen, self.camera_offset)
 
-        keys = pygame.key.get_pressed()
-        moving = keys[pygame.K_a] or keys[pygame.K_d]
-        frame = (
-            self.hero_walk_frames[self.hero_walk_index] if moving else self.hero_idle_frames[self.hero_index]
-        )
-        self.screen.blit(frame, (self.player.x - self.camera_offset, self.player.y))
+        for zombie in self.zombies:
+            if not zombie.defeated:
+                self.grit.draw_shadow(self.screen, zombie.x - self.camera_offset, FEET_Y)
+            zombie.draw(self.screen, self.camera_offset, FEET_Y)
+
+        hero_x = self.hero_feet_x - self.camera_offset
+        self.grit.draw_shadow(self.screen, hero_x, FEET_Y, 0.9 - min(0.4, self.hero.lift / 250))
+        self.hero.draw(self.screen, hero_x, FEET_Y, self.facing_right)
 
         for ghost in self.ghosts:
-            if ghost.visible:
-                if ghost.spawning and ghost.spawn_index < len(ghost.spawn_frames):
-                    spawn_frame = ghost.spawn_frames[ghost.spawn_index]
-                    self.screen.blit(spawn_frame, (ghost.x - self.camera_offset, ghost.y))
-                elif not ghost.spawn_complete and ghost.enemy_img:
-                    self.screen.blit(ghost.enemy_img, (ghost.x - self.camera_offset, ghost.y))
+            if ghost.spawning and ghost.spawn_index < len(self.ghost_spawn_frames):
+                self.screen.blit(self.ghost_spawn_frames[ghost.spawn_index],
+                                 (ghost.x - self.camera_offset, ghost.y))
 
-        for anim in self.skeleton_animations:
-            anim.draw(self.screen, self.camera_offset)
+        self.grit.draw_fog(self.screen, self.camera_offset)
+        self.grit.apply(self.screen)   # everything above is "world"; below stays crisp
+
+        if self.whisper_jack:
+            self.whisper_jack.draw(self.screen, self.camera_offset)
+
+        for text in self.floating_texts:
+            text.draw(self.screen)
+        for text in self.world_texts:
+            text.draw(self.screen, self.camera_offset)
 
         self.player_hud.draw()
+        label = self.small_font.render(f"Ch. {self.level_index + 1}: {self.level['name']}", True, (230, 230, 230))
+        self.screen.blit(label, (self.shop_button.right - label.get_width(), self.shop_button.bottom + 8))
+        if not self.shop.visible:
+            draw_button(self.screen, self.shop_button, "Candy Shop", self.font, (80, 80, 200), text_color=WHITE)
+        self.shop.draw()
 
-        if self.show_shop_button and not self.shop_modal.visible:
-            pygame.draw.rect(self.screen, (80, 80, 200), self.shop_button_rect)
-            pygame.draw.rect(self.screen, (255, 255, 255), self.shop_button_rect, 2)
-            label = self.font.render("Candy Shop", True, (255, 255, 255))
-            self.screen.blit(label, (
-                self.shop_button_rect.centerx - label.get_width() // 2,
-                self.shop_button_rect.centery - label.get_height() // 2 + 1
-            ))
-
-
-        self.shop_modal.draw()
+    def _draw_background(self):
+        if not self.background:
+            self.screen.fill((15, 10, 25))
+            return
+        width = self.background.get_width()
+        x = -(self.camera_offset % width)
+        self.screen.blit(self.background, (x, 0))
+        self.screen.blit(self.background, (x + width, 0))

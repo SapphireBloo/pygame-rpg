@@ -1,55 +1,58 @@
 import pygame
+
+from core.ui import get_font, draw_panel, draw_button, blit_centered, WHITE, CANDY_PINK
+
+
 class EndCombatModal:
-    def __init__(self, screen, candy_reward=0):
+    """Result popup shown after a battle (win or loss).
+
+    Close it by clicking the button or pressing Space/Enter.
+    """
+
+    def __init__(self, screen):
         self.screen = screen
-        self.font = pygame.font.SysFont("consolas", 22)
-        self.modal_rect = pygame.Rect(200, 150, 400, 300)
-        self.end_button_rect = pygame.Rect(325, 370, 150, 40)
-        self.candy_reward = candy_reward
+        self.font = get_font(22)
+        self.rect = pygame.Rect(200, 150, 400, 300)
+        self.button = pygame.Rect(0, 0, 170, 40)
+        self.button.midbottom = (self.rect.centerx, self.rect.bottom - 30)
         self.visible = False
-        self.comment = "Whisper Jack: Not bad, kid."
-        self.done = False  # Track when modal is closed
+        self.title = ""
+        self.lines = []
+        self.button_label = ""
+        self.border_color = (255, 165, 0)
 
-    def open(self, candy_reward, comment=None):
-        self.candy_reward = candy_reward
-        self.comment = comment or self.comment
+    def open(self, title, lines, button_label="Continue", border_color=(255, 165, 0)):
+        self.title = title
+        self.lines = lines
+        self.button_label = button_label
+        self.border_color = border_color
         self.visible = True
-        self.done = False  # Reset done flag on open
-
-    def close(self):
-        self.visible = False
-        self.done = True  # Mark as done when closed
 
     def handle_event(self, event):
+        """Returns True when the player dismisses the modal."""
         if not self.visible:
             return False
-
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if self.end_button_rect.collidepoint(event.pos):
-                self.close()
-                return True
+        clicked = event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.button.collidepoint(event.pos)
+        pressed = event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_RETURN)
+        if clicked or pressed:
+            self.visible = False
+            return True
         return False
 
     def draw(self):
         if not self.visible:
             return
+        draw_panel(self.screen, self.rect, self.border_color)
+        blit_centered(self.screen, self.font.render(self.title, True, WHITE), (self.rect.centerx, self.rect.top + 30))
 
-        pygame.draw.rect(self.screen, (30, 30, 30), self.modal_rect)
-        pygame.draw.rect(self.screen, (255, 165, 0), self.modal_rect, 4)
+        y = self.rect.top + 90
+        for text, color in self.lines:
+            blit_centered(self.screen, self.font.render(text, True, color), (self.rect.centerx, y))
+            y += 40
 
-        title_surf = self.font.render("Battle Won!", True, (255, 255, 255))
-        self.screen.blit(title_surf, (self.modal_rect.centerx - title_surf.get_width() // 2, 170))
+        draw_button(self.screen, self.button, self.button_label, self.font, (100, 200, 100))
 
-        candy_text = self.font.render(f"Candy earned: {self.candy_reward}", True, (255, 200, 255))
-        self.screen.blit(candy_text, (self.modal_rect.left + 50, 230))
 
-        comment = self.font.render(self.comment, True, (180, 180, 255))
-        self.screen.blit(comment, (self.modal_rect.left + 50, 270))
-
-        pygame.draw.rect(self.screen, (100, 200, 100), self.end_button_rect)
-        pygame.draw.rect(self.screen, (255, 255, 255), self.end_button_rect, 2)
-        button_text = self.font.render("End Combat", True, (0, 0, 0))
-        self.screen.blit(button_text, (
-            self.end_button_rect.centerx - button_text.get_width() // 2,
-            self.end_button_rect.centery - button_text.get_height() // 2
-        ))
+# Handy colors for modal lines
+CANDY_LINE = CANDY_PINK
+JACK_LINE = (180, 180, 255)

@@ -1,143 +1,127 @@
-import pygame
 import random
 
+import pygame
+
+from core.ui import get_font, WHITE, BLACK
+
+FAREWELL_LINES = [
+    "Got candy? No? Then I'm ghostin'...",
+    "The sweetest treats vanish first... so do I.",
+    "Remember, Jack's always watching... especially for candy.",
+    "No candy, no company. I'm haunting off.",
+    "Sugar's the price for my company... and you're broke.",
+    "Catch me if you can... but first, find some candy.",
+    "Candy or chaos. Choose wisely, or I'll be back.",
+    "Trick or treat? Looks like you're all treat... for now.",
+]
+
+
 class SkeletonAnimation:
+    """Whisper Jack: rises out of the ground, talks, then sinks away.
+
+    Space advances his lines. After the scripted lines he adds a random
+    farewell; `message_done` turns True at that point, and the next Space
+    (or the owning scene) sends him back underground.
+    """
+
+    RISE_SPEED = 72    # pixels per second
+    SINK_SPEED = 90
+
     def __init__(self, x, y, frames, messages, frame_delay=250, max_bubble_width=250):
         self.x = x
-        self.initial_y = y + 100  # start below ground
         self.target_y = y
-        self.y = self.initial_y
-        self.rise_speed = 1.2
-        self.fall_speed = 1.5
-
+        self.y = float(y + 100)  # start below ground
         self.frames = frames
         self.frame_delay = frame_delay
         self.frame_index = 0
-        self.timer = 0
+        self.frame_timer = 0
 
         self.active = True
         self.fading_out = False
-
-        self.font = pygame.font.SysFont("consolas", 20)
-        self.name_font = pygame.font.SysFont("consolas", 18, bold=True)
-
-        self.name = "Whisper Jack"
-        
-        self.messages = messages.copy()
-        
-        self.farewell_lines = [
-            "Got candy? No? Then I'm ghostin'...",
-            "The sweetest treats vanish first... so do I.",
-            "Remember, Jack’s always watching… especially for candy.",
-            "No candy, no company. I’m haunting off.",
-            "Sugar’s the price for my company… and you’re broke.",
-            "Catch me if you can… but first, find some candy.",
-            "Candy or chaos—choose wisely, or I’ll be back.",
-            "Trick or treat? Looks like you’re all treat... for now.",
-        ]
-
-        # Pick a random farewell line at init
-        self.farewell_line = random.choice(self.farewell_lines)
-        
-        self.current_message_index = 0
         self.message_done = False
 
+        self.name = "Whisper Jack"
+        self.font = get_font(20)
+        self.name_font = get_font(18, bold=True)
         self.max_bubble_width = max_bubble_width
 
-    def wrap_text(self, text, font, max_width):
-        """Wrap text to fit inside max_width. Returns a list of lines."""
-        words = text.split(' ')
-        lines = []
-        current_line = ''
-        for word in words:
-            test_line = current_line + (' ' if current_line else '') + word
-            if font.size(test_line)[0] <= max_width:
-                current_line = test_line
+        self.messages = list(messages) + [random.choice(FAREWELL_LINES)]
+        self.message_index = 0
+        self.message_done = len(self.messages) == 1  # no scripted lines, straight to farewell
+        self._wrapped_cache = {}
+
+    # ---- input / update ------------------------------------------------
+    def handle_event(self, event):
+        if not self.active or self.fading_out:
+            return
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            if self.message_done:
+                self.fading_out = True
             else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-        if current_line:
-            lines.append(current_line)
-        return lines
+                self.message_index += 1
+                if self.message_index == len(self.messages) - 1:
+                    self.message_done = True  # now showing the farewell line
 
     def update(self, dt):
         if not self.active:
             return
-
-        # Rising animation (fade in)
-        if not self.fading_out:
-            if self.y > self.target_y:
-                self.y -= self.rise_speed
-                if self.y < self.target_y:
-                    self.y = self.target_y
-
-        # Falling animation (fade out)
+        step = dt / 1000
         if self.fading_out:
-            self.y += self.fall_speed
-            screen_height = pygame.display.get_surface().get_height()
-            if self.y > screen_height + 100:
+            self.y += self.SINK_SPEED * step
+            if self.y > pygame.display.get_surface().get_height() + 100:
                 self.active = False
+        elif self.y > self.target_y:
+            self.y = max(self.target_y, self.y - self.RISE_SPEED * step)
 
-        # Loop idle animation
-        self.timer += dt
-        if self.timer >= self.frame_delay:
-            self.frame_index = (self.frame_index + 1) % len(self.frames)
-            self.timer = 0
+        if self.frames:
+            self.frame_timer += dt
+            if self.frame_timer >= self.frame_delay:
+                self.frame_index = (self.frame_index + 1) % len(self.frames)
+                self.frame_timer = 0
 
-    def handle_event(self, event):
-        if self.active and not self.fading_out and event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                self.current_message_index += 1
-                if self.current_message_index >= len(self.messages):
-                    if not self.message_done:
-                        self.message_done = True
-                        # Append the random farewell line once all normal messages are done
-                        self.messages.append(self.farewell_line)
-                    else:
-                        # After farewell line, start fade out
-                        self.fading_out = True
+    # ---- drawing -------------------------------------------------------
+    def _wrap(self, text):
+        if text not in self._wrapped_cache:
+            lines, current = [], ""
+            for word in text.split(" "):
+                test = f"{current} {word}".strip()
+                if self.font.size(test)[0] <= self.max_bubble_width or not current:
+                    current = test
+                else:
+                    lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+            self._wrapped_cache[text] = lines
+        return self._wrapped_cache[text]
 
-    def draw(self, screen, camera_offset):
+    def draw(self, screen, camera_offset=0):
         if not self.active:
             return
+        screen_x = self.x - camera_offset
+        if self.frames:
+            screen.blit(self.frames[self.frame_index], (screen_x, self.y))
 
-        # Draw skeleton sprite
-        if self.frame_index < len(self.frames):
-            screen.blit(self.frames[self.frame_index], (self.x - camera_offset, self.y))
+        if self.message_index >= len(self.messages):
+            return
+        lines = self._wrap(self.messages[self.message_index])
+        name_surface = self.name_font.render(self.name, True, (20, 20, 20))
 
-        # Draw speech bubble if there's a message to show
-        if self.current_message_index < len(self.messages):
-            message = self.messages[self.current_message_index]
-            lines = self.wrap_text(message, self.font, self.max_bubble_width)
-            name_surface = self.name_font.render(self.name, True, (20, 20, 20))
+        padding = 10
+        line_height = self.font.get_height()
+        width = max([self.font.size(line)[0] for line in lines] + [name_surface.get_width()]) + padding * 2
+        height = line_height * len(lines) + name_surface.get_height() + padding * 3
+        bubble = pygame.Rect(max(10, screen_x - width - 20), self.y - height - 30, width, height)
 
-            padding = 10
-            line_height = self.font.get_height()
-            bubble_width = max([self.font.size(line)[0] for line in lines] + [name_surface.get_width()]) + padding * 2
-            bubble_height = line_height * len(lines) + name_surface.get_height() + padding * 3
+        pygame.draw.rect(screen, WHITE, bubble, border_radius=8)
+        pygame.draw.rect(screen, BLACK, bubble, 2, border_radius=8)
+        screen.blit(name_surface, (bubble.x + padding, bubble.y + padding))
 
-            bubble_x = self.x - camera_offset - bubble_width - 20  # bubble to left
-            # Clamp bubble_x so it never goes beyond left edge of screen (10 px padding)
-            if bubble_x < 10:
-                bubble_x = 10
-            bubble_y = self.y - bubble_height - 30  # Raise bubble up more
+        text_y = bubble.y + padding + name_surface.get_height() + 5
+        for line in lines:
+            screen.blit(self.font.render(line, True, BLACK), (bubble.x + padding, text_y))
+            text_y += line_height
 
-            bubble_rect = pygame.Rect(bubble_x, bubble_y, bubble_width, bubble_height)
-            pygame.draw.rect(screen, (255, 255, 255), bubble_rect, border_radius=8)
-            pygame.draw.rect(screen, (0, 0, 0), bubble_rect, 2, border_radius=8)
-
-            # Draw Whisper Jack's name at top of bubble
-            screen.blit(name_surface, (bubble_x + padding, bubble_y + padding))
-
-            # Draw wrapped message lines
-            text_y = bubble_y + padding + name_surface.get_height() + 5
-            for line in lines:
-                line_surface = self.font.render(line, True, (0, 0, 0))
-                screen.blit(line_surface, (bubble_x + padding, text_y))
-                text_y += line_height
-
-            # Draw [Press Space] hint only if not fading out
-            if not self.fading_out:
-                hint_surface = self.font.render("[Press Space]", True, (100, 100, 100))
-                screen.blit(hint_surface, (bubble_x + padding, bubble_y + bubble_height))
+        if not self.fading_out:
+            hint = self.font.render("[Press Space]", True, (100, 100, 100))
+            screen.blit(hint, (bubble.x + padding, bubble.bottom))

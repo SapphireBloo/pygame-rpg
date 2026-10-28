@@ -1,57 +1,84 @@
 import pygame
 
+from core.ui import get_font, GOLD, GREY, blit_centered
+
+JAB, HAYMAKER, CHIN_CHECK, HEAL, BOMB = "Jab", "Haymaker", "Chin Check", "Heal", "Bomb"
+# Blocking isn't a menu choice: press SPACE as an enemy hit lands to block (or parry).
+
+HINTS = {
+    JAB: "Quick and reliable. Hit SPACE as the ring closes for bonus damage.",
+    HAYMAKER: "Huge damage, but whiffs a lot unless you time it.",
+    CHIN_CHECK: "Finisher! Spends a full Chin meter. Time it for a massive uppercut.",
+    HEAL: "Eat 1 candy: restore HP and cure infection.",
+    BOMB: "Throw a bomb for heavy damage.",
+}
+
+
 class CombatOptions:
-    def __init__(self, screen):
+    """The move menu along the bottom of the battle screen."""
+
+    def __init__(self, screen, player):
         self.screen = screen
-        self.options = ["Attack", "Heal", "Block", "Item"]
+        self.player = player
+        self.options = [JAB, HAYMAKER, CHIN_CHECK, HEAL, BOMB]
         self.selected_index = 0
-        self.font = pygame.font.SysFont("consolas", 28, bold=True)
-        self.option_spacing = 180
-        self.base_x = 50
-        self.y = 550
-        self.highlight_color = (255, 215, 0)
-        self.text_color = (200, 200, 200)
-        self.selection_made = False
+        self.font = get_font(22, bold=True)
+        self.hint_font = get_font(15)
+        self.y = 562
+
+    def available(self, option):
+        p = self.player
+        if option == CHIN_CHECK:
+            return p.chin_ready
+        if option == HEAL:
+            return p.can_heal()
+        if option == BOMB:
+            return p.inventory.get("bomb", 0) > 0
+        return True
 
     def handle_event(self, event):
-        if self.selection_made:
-            return
-
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_LEFT:
-                self.selected_index = (self.selected_index - 1) % len(self.options)
-            elif event.key == pygame.K_RIGHT:
-                self.selected_index = (self.selected_index + 1) % len(self.options)
-            elif event.key in (pygame.K_SPACE, pygame.K_RETURN):  # Accept Space or Enter to confirm
-                self.selection_made = True
-
-    def reset_selection(self):
-        self.selection_made = False
-
-    def get_selected(self):
-        if self.selection_made:
-            return self.options[self.selected_index]
-        else:
+        """Returns the chosen option when confirmed, otherwise None."""
+        if event.type != pygame.KEYDOWN:
             return None
+        if event.key in (pygame.K_LEFT, pygame.K_a):
+            self.selected_index = (self.selected_index - 1) % len(self.options)
+        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+            self.selected_index = (self.selected_index + 1) % len(self.options)
+        elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
+            return self.options[self.selected_index]
+        return None
 
     def draw(self):
+        texts = []
         for i, option in enumerate(self.options):
-            x = self.base_x + i * self.option_spacing
-            color = self.highlight_color if i == self.selected_index else self.text_color
+            selected = i == self.selected_index
+            if option == CHIN_CHECK and self.player.chin_ready:
+                color = (255, 120, 60) if not selected else GOLD
+            else:
+                color = GOLD if selected else GREY
+            if not self.available(option):
+                color = (95, 95, 95) if not selected else (170, 150, 80)
+            texts.append(self.font.render(option, True, color))
 
-            # Draw background rect for selected option
+        # Spread the options evenly across the bottom strip
+        total = sum(t.get_width() for t in texts)
+        gap = (self.screen.get_width() - 40 - total) / (len(texts) - 1)
+        x = 20
+        bar = pygame.Surface((self.screen.get_width(), self.screen.get_height() - self.y + 14), pygame.SRCALPHA)
+        bar.fill((0, 0, 0, 160))
+        self.screen.blit(bar, (0, self.y - 14))
+        for i, text in enumerate(texts):
+            rect = text.get_rect(topleft=(x, self.y))
             if i == self.selected_index:
-                text_surface = self.font.render(option, True, color)
-                padding = 10
-                rect = pygame.Rect(
-                    x - padding,
-                    self.y - padding,
-                    text_surface.get_width() + padding * 2,
-                    text_surface.get_height() + padding * 2
-                )
-                pygame.draw.rect(self.screen, (50, 50, 50), rect, border_radius=6)
-                pygame.draw.rect(self.screen, self.highlight_color, rect, 3, border_radius=6)
+                box = rect.inflate(16, 12)
+                pygame.draw.rect(self.screen, (40, 35, 30), box, border_radius=6)
+                pygame.draw.rect(self.screen, GOLD, box, 2, border_radius=6)
+            self.screen.blit(text, rect)
+            x += text.get_width() + gap
 
-            # Draw option text
-            text_surface = self.font.render(option, True, color)
-            self.screen.blit(text_surface, (x, self.y))
+        hint = self.hint_font.render(HINTS[self.options[self.selected_index]], True, (225, 215, 195))
+        pill = hint.get_rect(center=(self.screen.get_width() // 2, self.y - 64)).inflate(18, 8)
+        back = pygame.Surface(pill.size, pygame.SRCALPHA)
+        back.fill((0, 0, 0, 150))
+        self.screen.blit(back, pill)
+        blit_centered(self.screen, hint, pill.center)

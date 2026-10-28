@@ -1,26 +1,22 @@
-# enemy_hud.py
-import pygame
+from core.ui import draw_bar, get_font, WHITE
+
 
 class EnemyHUD:
-    def __init__(self, screen, font, enemy):
+    """Top-right enemy name and HP bar."""
+
+    def __init__(self, screen, enemy, x=450, y=5, bar_width=300):
         self.screen = screen
-        self.font = font
         self.enemy = enemy
+        self.font = get_font(22)
+        self.x, self.y = x, y
+        self.bar_width = bar_width
+        self.shown_hp = float(enemy.hp)
 
-        self.bar_pos = (450, 30)
-        self.bar_width = 300
-        self.bar_height = 20
-
-        self.name_pos = (450, 5)
-        self.hp_pos = (450, 55)
-
-    def draw_bar(self, x, y, width, height, value, max_value, color):
-        pygame.draw.rect(self.screen, (60, 60, 60), (x, y, width, height))
-        fill = int(width * (value / max_value)) if max_value > 0 else 0
-        pygame.draw.rect(self.screen, color, (x, y, fill, height))
-        pygame.draw.rect(self.screen, (255, 255, 255), (x, y, width, height), 2)
+    def update(self, dt):
+        self.shown_hp += (self.enemy.hp - self.shown_hp) * min(1.0, dt / 100)
 
     def draw(self):
-        self.draw_bar(*self.bar_pos, self.bar_width, self.bar_height, self.enemy.hp, self.enemy.max_hp, (200, 0, 0))
-        self.screen.blit(self.font.render(self.enemy.name, True, (255, 100, 100)), self.name_pos)
-        self.screen.blit(self.font.render(f"HP: {self.enemy.hp}/{self.enemy.max_hp}", True, (255, 255, 255)), self.hp_pos)
+        e, x, y = self.enemy, self.x, self.y
+        self.screen.blit(self.font.render(e.name, True, (255, 100, 100)), (x, y))
+        draw_bar(self.screen, x, y + 25, self.bar_width, 20, self.shown_hp, e.max_hp, (200, 0, 0))
+        self.screen.blit(self.font.render(f"HP: {e.hp}/{e.max_hp}", True, WHITE), (x, y + 50))
