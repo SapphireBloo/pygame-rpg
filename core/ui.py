@@ -84,11 +84,11 @@ def draw_speech_bubble(screen, name, lines, place, hint=True, name_color=(20, 20
         screen.blit(font.render(line, True, BLACK), (rect.x + padding, y))
         y += line_h
     if hint:
-        screen.blit(font.render("[Press Space]", True, (100, 100, 100)), (rect.x + padding, rect.bottom))
+        screen.blit(font.render("[Space or click]", True, (100, 100, 100)), (rect.x + padding, rect.bottom))
     return rect
 
 
-# ---- spooky menu kit (Candy Shop, battle results) -----------------------------
+# ---- spooky menu kit (shops, bag, battle results) ------------------------------
 
 def shade(color, amount):
     """Lighten (amount > 0) or darken (amount < 0) a color."""

@@ -1,13 +1,21 @@
 import random
 
+from core.difficulty import STRING_HIT_DAMAGE
+
 # What makes each enemy type play differently
 KINDS = {
     # Ghosts sometimes phase through sloppy (untimed) hits
     "ghost": {"phase_chance": 0.2, "infect_chance": 0.0, "heavy_name": "a bone-chilling WAIL",
               "attack_verb": "claws"},
-    # Zombie bites can infect: Charlie loses HP every turn until he eats candy
+    # Zombie bites can infect: Charlie loses HP every turn (and while walking) until he drinks a Remedy or Elixir
     "zombie": {"phase_chance": 0.0, "infect_chance": 0.25, "heavy_name": "a BIG BITE",
                "attack_verb": "bites"},
+    # Death Knights are armored: untimed (sloppy) punches only do half damage
+    "knight": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "a CAVALRY CHARGE",
+               "attack_verb": "slashes", "armor": 0.5, "heavy_chance": 0.3},
+    # Satyrs play with fire: their antler beam (heavy) always burns, scratches sometimes do
+    "satyr": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "an ANTLER BEAM",
+              "attack_verb": "scratches", "burn_chance": 0.15, "heavy_chance": 0.3},
     # --- bosses (all enrage at half HP) ---
     # Mortis, Bringer of Death: a ghost too, so sloppy hits can pass through him.
     # Death's Grasp steals half the damage it deals as HP for him.
@@ -32,11 +40,17 @@ HEAVY_CHANCE = 0.3
 
 
 class Enemy:
-    def __init__(self, name="Ghost", hp=50, damage=(5, 15), candy=(1, 3), kind="ghost", boss=False, **_):
+    def __init__(self, name="Ghost", hp=50, damage=(5, 15), candy=(1, 3), kind="ghost", boss=False, mods=None, **_):
+        """mods: chapter/difficulty adjustments from core.difficulty.enemy_mods (None = as written)."""
+        mods = mods or {}
         self.name = name
-        self.max_hp = hp
-        self.hp = hp
+        self.max_hp = round(hp * mods.get("hp", 1.0))
+        self.hp = self.max_hp
+        self.damage_mult = mods.get("damage", 1.0)
         self.damage_range = damage
+        self.string_chance = mods.get("string_chance", 0.0)   # chance a regular attack is a 2-3 hit string
+        self.string_max = mods.get("string_max", 1)
+        self.feint_chance = mods.get("feint_chance", 0.0)     # chance each swing stalls mid-swing
         self.candy_range = candy
         self.kind = kind
         traits = KINDS[kind]
@@ -48,11 +62,29 @@ class Enemy:
         self.lifesteal = traits.get("lifesteal", 0.0)       # heavy hits heal it by this share of the damage
         self.burn_chance = traits.get("burn_chance", 0.0)   # chance a regular hit burns (heavy hits always do)
         self.burns = "burn_chance" in traits
+        self.armor = traits.get("armor", 1.0)               # damage multiplier for untimed hits
         self.heavy_chance = traits.get("heavy_chance", HEAVY_CHANCE)
         self.boss = boss
         self.enraged = False
         self.next_heavy = False    # telegraphed intent for its next attack
+        self.next_hits = 1         # how many swings its next attack has (a string if more than 1)
         self._last_heavy = False
+        self.daze = 0              # stacks from Charlie's jabs (spent by a Haymaker or Chin Check)
+        self.daze_fresh = False    # dazed during the turn that just happened (doesn't wear off yet)
+
+    @property
+    def daze_max(self):
+        return 2 if self.boss else 3
+
+    def add_daze(self):
+        self.daze = min(self.daze_max, self.daze + 1)
+        self.daze_fresh = True
+
+    def wear_off_daze(self):
+        """End of the enemy's turn: an old Daze stack wears off (a fresh one waits a turn)."""
+        if self.daze and not self.daze_fresh:
+            self.daze -= 1
+        self.daze_fresh = False
 
     @property
     def is_alive(self):
@@ -63,18 +95,26 @@ class Enemy:
         chance = ENRAGED_HEAVY_CHANCE if self.enraged else self.heavy_chance
         self.next_heavy = (not self._last_heavy) and random.random() < chance
         self._last_heavy = self.next_heavy
+        self.next_hits = 1
+        if not self.next_heavy and self.string_max > 1 and random.random() < self.string_chance:
+            self.next_hits = random.randint(2, self.string_max)
         return self.next_heavy
 
-    def attack(self):
-        dmg = random.randint(*self.damage_range)
+    def attack(self, string_hit=False):
+        dmg = random.randint(*self.damage_range) * self.damage_mult
         if self.enraged:
             dmg *= ENRAGED_DAMAGE
-        return round(dmg * HEAVY_MULTIPLIER) if self.next_heavy else round(dmg)
+        if self.next_heavy:
+            dmg *= HEAVY_MULTIPLIER
+        elif string_hit:
+            dmg *= STRING_HIT_DAMAGE
+        return max(1, round(dmg))
 
     def check_enrage(self):
         """Bosses enrage once at half HP. Returns True on the turn it happens."""
         if self.boss and not self.enraged and self.is_alive and self.hp <= self.max_hp // 2:
             self.enraged = True
+            self.daze = 0             # the rage shakes off any Daze
             return True
         return False
 

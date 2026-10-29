@@ -7,13 +7,22 @@ Boss art folders (assets/images):
   warlock/    Grimwald the Warlock      - Warlock's Hollow
   fire worm/  Scorchmaw the Fire Worm   - The Bleeding Woods
   demon/      Malgorath the Demon       - The Graveyard (final boss)
+
+Regular monsters (they roam the levels, see core/roaming_enemy.py):
+  ghost_idle/     Ghosts        - The Cabin
+  death knight/   Death Knights - Warlock's Hollow
+  satyr/          Satyrs        - The Bleeding Woods
+  male/ female/   Zombies       - The Graveyard
 """
+import json
 from functools import lru_cache
 
-from core.animation import (frames_animation, load_gameart2d_character, load_strip_character,
+import pygame
+
+from core.animation import (Animation, frames_animation, load_gameart2d_character, load_strip_character,
                             load_pixel_character, slice_grid, slice_strip, effect_animation)
 from core.assets import load_sprite_sheet, tinted
-from core.settings import ZOMBIE_HEIGHT, CHARACTER_INK
+from core.settings import ZOMBIE_HEIGHT, CHARACTER_INK, IMAGES_DIR
 
 # How tall each boss's idle pose stands, in pixels (Charlie is about 138).
 # Bigger number = bigger boss. The art scales with crisp nearest-neighbor pixels.
@@ -49,6 +58,13 @@ BATTLE_LAYOUT = {
                  "glow": (255, 120, 40), "sparks": [(255, 150, 40), (255, 220, 90), (140, 30, 20)],
                  "intro": "attack",
                  "sounds": {"laugh": "worm_roar", "attack": "worm_spit", "heavy": "worm_spit"}},
+    # regular monsters
+    "knight": {"mid": 95, "gap": 165, "home_x": 635, "shadow": 1.7, "hit_point": 0.41,
+               "sparks": [(220, 225, 240), (140, 150, 180), (255, 255, 255)],
+               "sounds": {"attack": "knight_slash", "heavy": "knight_charge"}},
+    "satyr": {"mid": 65, "gap": 120, "hit_point": 0.5,
+              "sparks": [(200, 60, 90), (255, 150, 60), (90, 30, 50)],
+              "sounds": {"attack": "satyr_attack", "heavy": "satyr_beam"}},
     "demon": {"mid": 190, "gap": 215, "aura": (480, 600), "home_x": 650, "shadow": 2.4, "hit_point": 0.62,
               "glow": (255, 80, 30), "sparks": [(255, 120, 30), (255, 210, 80), (120, 20, 10)],
               "intro": "attack",
@@ -72,6 +88,18 @@ WORM_SPEEDS = (("idle", 100), ("attack", 70), ("hit", 90), ("dead", 120))
 DEMON_SHEET = "demon/spritesheets/demon_slime_FREE_v1.0_288x160_spritesheet.png"   # 288x160, 22 per row
 DEMON_FRAMES = (("idle", 0, 6), ("attack", 44, 15), ("hit", 66, 5), ("dead", 88, 22))
 DEMON_SPEEDS = (("idle", 120), ("attack", 70), ("hit", 80), ("dead", 75))
+
+# ---- regular monsters ----------------------------------------------------
+SATYR_HEIGHT = 140
+SATYR_SHEET = "satyr/SPRITE_SHEET.png"      # 32x32 pixel-art frames, 10 per row
+SATYR_FRAMES = (("idle", 0, 6), ("walk", 10, 8), ("attack", 30, 7), ("dead", 60, 10), ("hit", 70, 4),
+                ("attack2", 90, 20))        # attack2 = the antler beam (its heavy attack)
+SATYR_BRIGHTEN = (45, 30, 40)               # added to its colors so it reads against the Bleeding Woods
+SATYR_SPEEDS = (("idle", 130), ("walk", 90), ("attack", 85), ("attack2", 55), ("dead", 100), ("hit", 90))
+
+KNIGHT_HEIGHT = 185                          # mounted, so a bit taller than a zombie
+KNIGHT_FOLDER = "death knight"               # hi-res 448x448 frames with timings in animations.json
+KNIGHT_TICK_MS = 42                          # frames are repeated to match their listed durations
 
 
 def boss_scale(sprite):
@@ -111,6 +139,61 @@ def boss_effects(sprite):
     return {}
 
 
+@lru_cache(maxsize=None)
+def _satyr_animations():
+    raw = {name: slice_grid(SATYR_SHEET, 32, 32, start, n) for name, start, n in SATYR_FRAMES}
+    for frames in raw.values():           # its dark reds vanish in the red woods: lift them a little
+        for i, frame in enumerate(frames):
+            frames[i] = frame.copy()
+            frames[i].fill(SATYR_BRIGHTEN, special_flags=pygame.BLEND_RGB_ADD)
+    return load_pixel_character(raw, SATYR_HEIGHT, SATYR_SPEEDS, CHARACTER_INK)
+
+
+@lru_cache(maxsize=None)
+def _knight_animations():
+    """The Death Knight is smooth (not pixel) art, so it's scaled with smoothing.
+    The pack only has walk and attack: idle is his standing pose, and his death
+    (rearing back, then crumbling into the ground) is built here from that pose."""
+    meta = json.loads((IMAGES_DIR / KNIGHT_FOLDER / "animations.json").read_text(encoding="utf-8"))
+    ax, ay = meta["anchor"]["pixel"]
+    raw = {name: [(pygame.image.load(IMAGES_DIR / KNIGHT_FOLDER / f["file"]).convert_alpha(), f["durationMs"])
+                  for f in action["frames"]]
+           for name, action in meta["actions"].items()}
+    scale = KNIGHT_HEIGHT / raw["walk"][0][0].get_bounding_rect().height
+
+    def build(frames, loop):
+        used = None
+        for image, _ in frames:
+            box = image.get_bounding_rect()
+            used = box if used is None else used.union(box)
+        used = used.inflate(4, 4).clip(frames[0][0].get_rect())
+        size = (round(used.width * scale), round(used.height * scale))
+        sequence = []
+        for image, ms in frames:
+            scaled = pygame.transform.smoothscale(image.subsurface(used), size)
+            sequence += [scaled] * max(1, round(ms / KNIGHT_TICK_MS))   # same surface, no extra memory
+        anchor = ((ax - used.left) * scale, (ay - used.top) * scale)
+        return Animation(tuple(sequence), anchor, KNIGHT_TICK_MS, loop)
+
+    walk = build(raw["walk"], True)
+    attack = build(raw["attack"], False)
+    stand = raw["walk"][0][0]
+    idle = build([(stand, 400)], True)
+    dying = []
+    for k in range(14):
+        t = k / 13
+        frame = stand.copy()
+        frame.fill((int(255 - 150 * t),) * 3 + (255,), special_flags=pygame.BLEND_RGBA_MULT)   # darken
+        frame.fill((255, 255, 255, int(255 * (1 - t) ** 0.7)), special_flags=pygame.BLEND_RGBA_MULT)  # fade
+        w, h = frame.get_size()
+        sink = pygame.Surface((w, h), pygame.SRCALPHA)
+        squash = max(1, round(h * (1 - 0.35 * t)))
+        sink.blit(pygame.transform.smoothscale(frame, (w, squash)), (0, h - squash + round(18 * t)))
+        dying.append((sink, 70))
+    dead = build(dying, False)
+    return {"idle": idle, "walk": walk, "attack": attack, "dead": dead}
+
+
 def is_boss_sprite(sprite):
     return sprite in BOSS_HEIGHTS
 
@@ -126,6 +209,10 @@ def enemy_animations(sprite, tint=None):
         }
     if is_boss_sprite(sprite):
         return _boss_animations(sprite)
+    if sprite == "satyr":
+        return _satyr_animations()
+    if sprite == "knight":
+        return _knight_animations()
     return load_gameart2d_character(sprite, ZOMBIE_HEIGHT, ink=CHARACTER_INK)   # male / female zombies
 
 
@@ -135,4 +222,9 @@ def battle_layout(sprite):
 
 def faces_right_in_battle(sprite):
     """Most art faces right and gets mirrored to face Charlie; the ghost sheet already faces him."""
+    return sprite == "ghost"
+
+
+def art_faces_left(sprite):
+    """The ghost sheet is drawn facing left (everything else faces right)."""
     return sprite == "ghost"

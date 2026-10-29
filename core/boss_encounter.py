@@ -11,7 +11,7 @@ from core.ui import draw_speech_bubble, wrap_text, get_font
 
 NOTICE_RANGE = 430
 BUBBLE_WIDTH = 300
-BUBBLE_MIN_Y = 86      # keep the bubble below the HUD and Candy Shop button, even for the tallest bosses
+BUBBLE_MIN_Y = 86      # keep the bubble below the HUD, even for the tallest bosses
 
 
 class BossEncounter:
@@ -44,7 +44,8 @@ class BossEncounter:
     def handle_event(self, event):
         if self.state != "taunting":
             return
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+        if (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE) or \
+                (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1):
             self.line_index += 1
             if self.line_index >= len(self.lines):
                 self.state = "casting"

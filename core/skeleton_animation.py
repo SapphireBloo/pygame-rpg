@@ -19,7 +19,7 @@ FAREWELL_LINES = [
 class SkeletonAnimation:
     """Whisper Jack: rises out of the ground, talks, then sinks away.
 
-    Space advances his lines. After the scripted lines he adds a random
+    Space (or a click) advances his lines. After the scripted lines he adds a random
     farewell; `message_done` turns True at that point, and the next Space
     (or the owning scene) sends him back underground.
     """
@@ -53,7 +53,9 @@ class SkeletonAnimation:
     def handle_event(self, event):
         if not self.active or self.fading_out:
             return
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+        advance = (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE) or \
+                  (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1)
+        if advance:
             if self.message_done:
                 self.fading_out = True
             else:
@@ -85,7 +87,7 @@ class SkeletonAnimation:
         screen_x = self.x - camera_offset
         if self.frames:
             screen.blit(self.frames[self.frame_index], (screen_x, self.y))
-        if self.message_index >= len(self.messages):
+        if self.message_index >= len(self.messages) or self.fading_out:   # no bubble while he sinks away
             return
         text = self.messages[self.message_index]
         if text not in self._wrapped_cache:

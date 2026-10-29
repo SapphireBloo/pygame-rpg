@@ -1,0 +1,364 @@
+{
+  "name": "Death Knight - Compact Walk & Attack",
+  "version": 1,
+  "cellSize": {
+    "w": 448,
+    "h": 448
+  },
+  "anchor": {
+    "pixel": [
+      224,
+      428
+    ],
+    "normalized": [
+      0.5,
+      0.9553571428571429
+    ]
+  },
+  "direction": "right-facing three-quarter view; mirror around the shared anchor to face left",
+  "timing": {
+    "tickRate": 24,
+    "unit": "milliseconds",
+    "instruction": "Use durationMs for each frame. Walk and attack have variable frame durations."
+  },
+  "frameIndexBase": 0,
+  "actions": {
+    "walk": {
+      "displayName": "移动",
+      "frameCount": 12,
+      "loop": true,
+      "durationMs": 1125.0,
+      "durationTicks": 27,
+      "frames": [
+        {
+          "file": "walk/walk_000.png",
+          "index": 0,
+          "sourceFrame": 49,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_001.png",
+          "index": 1,
+          "sourceFrame": 51,
+          "durationTicks": 3,
+          "durationMs": 125.0
+        },
+        {
+          "file": "walk/walk_002.png",
+          "index": 2,
+          "sourceFrame": 54,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_003.png",
+          "index": 3,
+          "sourceFrame": 56,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_004.png",
+          "index": 4,
+          "sourceFrame": 58,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_005.png",
+          "index": 5,
+          "sourceFrame": 60,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_006.png",
+          "index": 6,
+          "sourceFrame": 62,
+          "durationTicks": 3,
+          "durationMs": 125.0
+        },
+        {
+          "file": "walk/walk_007.png",
+          "index": 7,
+          "sourceFrame": 65,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_008.png",
+          "index": 8,
+          "sourceFrame": 67,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_009.png",
+          "index": 9,
+          "sourceFrame": 69,
+          "durationTicks": 3,
+          "durationMs": 125.0
+        },
+        {
+          "file": "walk/walk_010.png",
+          "index": 10,
+          "sourceFrame": 72,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "walk/walk_011.png",
+          "index": 11,
+          "sourceFrame": 74,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        }
+      ],
+      "averageFrameRate": 10.666666666666666
+    },
+    "attack": {
+      "displayName": "攻击",
+      "frameCount": 30,
+      "loop": false,
+      "durationMs": 2666.6666666666665,
+      "durationTicks": 64,
+      "frames": [
+        {
+          "file": "attack/attack_000.png",
+          "index": 0,
+          "sourceFrame": 10,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_001.png",
+          "index": 1,
+          "sourceFrame": 12,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_002.png",
+          "index": 2,
+          "sourceFrame": 14,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_003.png",
+          "index": 3,
+          "sourceFrame": 16,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_004.png",
+          "index": 4,
+          "sourceFrame": 18,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_005.png",
+          "index": 5,
+          "sourceFrame": 20,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_006.png",
+          "index": 6,
+          "sourceFrame": 22,
+          "durationTicks": 4,
+          "durationMs": 166.66666666666666
+        },
+        {
+          "file": "attack/attack_007.png",
+          "index": 7,
+          "sourceFrame": 26,
+          "durationTicks": 5,
+          "durationMs": 208.33333333333334
+        },
+        {
+          "file": "attack/attack_008.png",
+          "index": 8,
+          "sourceFrame": 31,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_009.png",
+          "index": 9,
+          "sourceFrame": 32,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_010.png",
+          "index": 10,
+          "sourceFrame": 33,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_011.png",
+          "index": 11,
+          "sourceFrame": 34,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_012.png",
+          "index": 12,
+          "sourceFrame": 35,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_013.png",
+          "index": 13,
+          "sourceFrame": 37,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_014.png",
+          "index": 14,
+          "sourceFrame": 39,
+          "durationTicks": 3,
+          "durationMs": 125.0
+        },
+        {
+          "file": "attack/attack_015.png",
+          "index": 15,
+          "sourceFrame": 42,
+          "durationTicks": 4,
+          "durationMs": 166.66666666666666
+        },
+        {
+          "file": "attack/attack_016.png",
+          "index": 16,
+          "sourceFrame": 46,
+          "durationTicks": 4,
+          "durationMs": 166.66666666666666
+        },
+        {
+          "file": "attack/attack_017.png",
+          "index": 17,
+          "sourceFrame": 50,
+          "durationTicks": 4,
+          "durationMs": 166.66666666666666
+        },
+        {
+          "file": "attack/attack_018.png",
+          "index": 18,
+          "sourceFrame": 54,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_019.png",
+          "index": 19,
+          "sourceFrame": 56,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_020.png",
+          "index": 20,
+          "sourceFrame": 57,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_021.png",
+          "index": 21,
+          "sourceFrame": 58,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_022.png",
+          "index": 22,
+          "sourceFrame": 59,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_023.png",
+          "index": 23,
+          "sourceFrame": 60,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_024.png",
+          "index": 24,
+          "sourceFrame": 61,
+          "durationTicks": 1,
+          "durationMs": 41.666666666666664
+        },
+        {
+          "file": "attack/attack_025.png",
+          "index": 25,
+          "sourceFrame": 62,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_026.png",
+          "index": 26,
+          "sourceFrame": 64,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_027.png",
+          "index": 27,
+          "sourceFrame": 66,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_028.png",
+          "index": 28,
+          "sourceFrame": 68,
+          "durationTicks": 2,
+          "durationMs": 83.33333333333333
+        },
+        {
+          "file": "attack/attack_029.png",
+          "index": 29,
+          "sourceFrame": 70,
+          "durationTicks": 4,
+          "durationMs": 166.66666666666666
+        }
+      ],
+      "events": [
+        {
+          "name": "hit",
+          "frameIndex": 12,
+          "timeMs": 1041.6666666666667
+        }
+      ],
+      "afterPlayback": "hold last frame or switch to another game state"
+    }
+  },
+  "sources": {
+    "walk": {
+      "video": "b60fd883a49a_1023_174945.mp4",
+      "sha256": "180b9cb0b5eff74a450995d76b04ca662f8eb6a472112ef649a2350ab8f1597d",
+      "sourcePack": "death-knight-walk-174945-transparent-v2",
+      "selectionStart": 49,
+      "selectionEndExclusive": 76,
+      "transformation": "Exact original 400x432 RGBA pixels pasted at (40,16); no resizing."
+    },
+    "attack": {
+      "archive": "骑士_攻击_原尺寸透明序列帧.zip",
+      "selectionStart": 10,
+      "selectionEndExclusive": 74,
+      "transformation": "Original 528x512 extraction scaled by 0.85 with one fixed transform for all frames. No per-frame recentering."
+    }
+  }
+}

@@ -6,12 +6,13 @@ from core.ui import draw_bar, get_font, WHITE
 class EnemyHUD:
     """Top-right enemy name and HP bar (purple, with a BOSS tag, for bosses)."""
 
-    def __init__(self, screen, enemy, x=450, y=5, bar_width=300):
+    def __init__(self, screen, enemy, x=None, y=5, bar_width=300):
         self.screen = screen
         self.enemy = enemy
         self.font = get_font(22)
         self.tag_font = get_font(14, bold=True)
-        self.x, self.y = x, y
+        self.x = screen.get_width() - bar_width - 50 if x is None else x   # top-right corner
+        self.y = y
         self.bar_width = bar_width
         self.shown_hp = float(enemy.hp)
         self.time = 0
@@ -38,4 +39,8 @@ class EnemyHUD:
         if boss:   # half-HP marker shows when it'll enrage
             mid = x + self.bar_width // 2
             self.screen.fill((255, 255, 255), (mid, y + 25, 2, 20))
-        self.screen.blit(self.font.render(f"HP: {e.hp}/{e.max_hp}", True, WHITE), (x, y + 50))
+        hp = self.font.render(f"HP: {e.hp}/{e.max_hp}", True, WHITE)
+        self.screen.blit(hp, (x, y + 50))
+        if getattr(e, "daze", 0) and e.is_alive:   # Daze stacks from jabs: cash them in with a Haymaker
+            tag = self.tag_font.render(f"DAZED x{e.daze}", True, (255, 225, 90))
+            self.screen.blit(tag, (x + hp.get_width() + 12, y + 54))

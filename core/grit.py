@@ -27,6 +27,7 @@ GRADES = {
     "bg_1.png": (212, 232, 202),   # Witch's Hollow: sickly green
     "bg_2.png": (232, 200, 198),   # Bleeding Woods: dried-blood red
     "bg_3.png": (200, 218, 238),   # Graveyard: cold moonlight
+    "camp": (245, 225, 200),       # Camp: warm firelight
 }
 DEFAULT_GRADE = (215, 205, 200)
 

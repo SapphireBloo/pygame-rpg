@@ -47,11 +47,7 @@ class EndCombatModal:
 
     def __init__(self, screen):
         self.screen = screen
-        self.rect = pygame.Rect(0, 0, 460, 400)
-        self.rect.center = (screen.get_width() // 2, screen.get_height() // 2 + 10)
-        self.surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-        self.button = pygame.Rect(0, 0, 210, 46)
-        self.button.midbottom = (self.rect.centerx, self.rect.bottom - 42)
+        self._layout(2)
         self.visible = False
         self.title = ""
         self.subtitle = ""
@@ -64,7 +60,17 @@ class EndCombatModal:
         self.particles = Particles()
         self._ticked = set()
 
+    def _layout(self, reward_rows):
+        """Size the card to fit its reward rows (it grows by one row height per extra reward)."""
+        height = 312 + 44 * max(2, reward_rows)
+        self.rect = pygame.Rect(0, 0, 460, height)
+        self.rect.center = (self.screen.get_width() // 2, self.screen.get_height() // 2 + 10)
+        self.surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        self.button = pygame.Rect(0, 0, 210, 46)
+        self.button.midbottom = (self.rect.centerx, self.rect.bottom - 42)
+
     def open(self, title, rewards=(), quote=None, subtitle="", button_label="Continue", mood="win"):
+        self._layout(len(rewards))
         self.title = title
         self.subtitle = subtitle
         self.rewards = list(rewards)

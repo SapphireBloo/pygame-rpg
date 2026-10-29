@@ -2,11 +2,11 @@
 from pathlib import Path
 
 # Window
-SCREEN_WIDTH = 800
+SCREEN_WIDTH = 1066        # widescreen 16:9 (fills a normal monitor without black bars)
 SCREEN_HEIGHT = 600
 FPS = 60
 TITLE = "Chin Check Charlie"
-FULLSCREEN = True          # start fullscreen; F11 or Alt+Enter toggles while playing
+# Fullscreen, volumes, and difficulty are player settings now: see core/options.py (Settings menu)
 
 # Paths are built from this file's location, so the game runs no matter
 # which folder you launch it from.
@@ -17,6 +17,12 @@ AUDIO_DIR = ASSETS_DIR / "audio"
 
 MUSIC_FILE = AUDIO_DIR / "background_music.mp3"
 MUSIC_VOLUME = 0.4
+# Which song plays where: (file, loudness adjustment). The game crossfades between them.
+MUSIC_TRACKS = {
+    "level": (MUSIC_FILE, 1.0),                    # walking around the chapters (and regular fights)
+    "camp": (AUDIO_DIR / "ominous.wav", 1.6),      # The Camp (this track is mixed quieter, so it's boosted)
+    "boss": (AUDIO_DIR / "boss.ogg", 1.0),         # from a boss's taunt until the victory screen is closed
+}
 
 # Art
 FONT_NAME = "consolas"
@@ -31,9 +37,8 @@ CHARACTER_INK = 3        # thickness of the dark outline drawn around characters
 WALK_SPEED = 300           # pixels per second
 RUN_SPEED = 480            # holding Shift
 SLIDE_SPEED = 620          # during a slide (S / Down)
-CAMERA_LEAD = 250          # how far from the left edge the hero sits on screen
-GHOST_SPACING = 800        # distance between ghost encounters (ghost count is per level)
-GHOST_TRIGGER_RANGE = 100  # how close the hero must get to wake a ghost
+CAMERA_LEAD = 330          # how far from the left edge the hero sits on screen
+MONSTER_SPACING = 800      # distance between each roaming monster's home spot (and the boss)
 
 # Battle
 TURN_DELAY_MS = 600        # pause between turns

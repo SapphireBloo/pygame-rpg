@@ -1,13 +1,14 @@
+from core.items import ITEMS_BY_KEY, STARTING_ITEMS
 from core.settings import GROUND_Y
 from core.upgrades import UPGRADES
 
 
 class Player:
     BASE_MAX_HP = 100
-    HEAL_COST = 1          # candy per heal
-    HEAL_AMOUNT = 25
-    HEAL_BOOST_AMOUNT = 35
-    STARTING_BOMBS = 1
+    # What each Blacksmith tier is worth (see core/upgrades.py for the costs)
+    MAX_HP_PER_TIER = 20       # Tough Hide
+    POTION_BOOST = 10          # extra HP per healing potion, per Potion Boost tier
+    BOMB_POWER = 10            # extra bomb damage per Bomb Power tier
 
     def __init__(self):
         self.name = "Charlie"
@@ -15,23 +16,26 @@ class Player:
         self.hp = self.max_hp
         self.level = 1
 
-        self.candy = 0                # currency and healing resource
+        self.candy = 0                # currency (spend it at camp)
         self.last_candy_reward = 0    # candy earned in the most recent battle
         self.battles_won = 0
 
-        self.inventory = {"bomb": self.STARTING_BOMBS}
-        self.blocking = False
+        self.inventory = dict(STARTING_ITEMS)   # item key -> how many (see core/items.py)
+        self.off_balance = False      # just threw a Haymaker: the next enemy hit is harder to block
 
         # Position in the exploration world
         self.x = 50.0
         self.y = GROUND_Y
 
-        self.upgrades = {u["key"]: False for u in UPGRADES}
-        self.used_resurrect = False   # "Resurrect Once" is once per game, not per battle
+        self.upgrades = {u["key"]: 0 for u in UPGRADES}   # upgrade key -> tier owned (0 = none)
+        self.used_resurrect = False   # Second Wind: once per game (tier II: refreshed every chapter)
+
+        # For the end-of-run summary
+        self.stats = {"losses": 0, "perfects": 0, "best_combo": 0, "parries": 0, "candy_earned": 0, "play_ms": 0}
 
         self.chin_meter = 0           # 0-100; full unlocks the Chin Check finisher
-        self.infected = 0             # turns of zombie infection left (loses HP each turn)
-        self.burning = 0              # turns of fire left (Fire Worm / Demon; loses HP each turn)
+        self.infected = 0             # zombie infection (1 = infected): hurts every turn until cured
+        self.burning = 0              # on fire (1 = burning): hurts every turn until cured
 
     # ---- status --------------------------------------------------------
     @property
@@ -39,7 +43,13 @@ class Player:
         return self.hp > 0
 
     def has(self, upgrade_key):
-        return self.upgrades.get(upgrade_key, False)
+        """Tier owned of an upgrade (0 if none), so `if player.has(...)` still works."""
+        return self.upgrades.get(upgrade_key, 0)
+
+    def next_tier(self, upgrade):
+        """The next tier the Blacksmith can sell, or None when it's maxed out."""
+        level = self.has(upgrade["key"])
+        return upgrade["tiers"][level] if level < len(upgrade["tiers"]) else None
 
     CHIN_METER_MAX = 100
 
@@ -54,70 +64,125 @@ class Player:
     def attack(self):
         return 10 + self.level * 2
 
-    def block(self):
-        self.blocking = True
-
     def take_damage(self, amount):
-        """Apply a hit. Returns (damage_taken, was_blocked)."""
-        blocked = self.blocking
-        if blocked:
-            amount //= 2
-            self.blocking = False
+        """Apply a hit. Returns the damage taken. (Blocking is all timing: see battle_manager.)"""
         self.hp = max(0, self.hp - amount)
-        return amount, blocked
+        return amount
 
-    def can_heal(self):
-        return self.candy >= self.HEAL_COST and (self.hp < self.max_hp or self.infected > 0 or self.burning > 0)
+    # ---- items -------------------------------------------------------
+    def count(self, key):
+        return self.inventory.get(key, 0)
 
-    def heal(self):
-        """Eat candy to heal. Returns HP restored (0 if nothing happened).
+    def add_item(self, key, amount=1):
+        self.inventory[key] = self.count(key) + amount
 
-        Won't spend candy at full HP (unless it's to cure an infection or put out a fire).
-        """
-        if not self.can_heal():
-            return 0
-        amount = self.HEAL_BOOST_AMOUNT if self.has("heal_boost") else self.HEAL_AMOUNT
-        self.candy -= self.HEAL_COST
-        self.infected = 0              # candy cures zombie infection
-        self.burning = 0               # ...and puts out fires
-        before = self.hp
-        self.hp = min(self.max_hp, self.hp + amount)
-        return self.hp - before
+    def remove_item(self, key, amount=1):
+        """Take items out of the bag. Returns False if there weren't enough."""
+        if self.count(key) < amount:
+            return False
+        self.inventory[key] -= amount
+        if not self.inventory[key]:
+            del self.inventory[key]
+        return True
+
+    def item_useful(self, key):
+        """Would using this item do anything right now? (No drinking potions at full HP.)"""
+        item = ITEMS_BY_KEY[key]
+        if not self.count(key):
+            return False
+        hurt = self.hp < self.max_hp
+        sick = self.infected > 0 or self.burning > 0
+        if item.get("heal") or item.get("cure"):
+            return (item.get("heal") and hurt) or (item.get("cure") and sick)
+        if item.get("meter"):
+            return not self.chin_ready
+        return bool(item.get("damage"))
+
+    def use_item(self, key):
+        """Use a healing/cure/meter item. Returns what happened:
+        {"healed": hp, "cured": bool, "meter": gained}, or None if it couldn't be used.
+        (Bombs are thrown through the battle rules instead.)"""
+        if not self.item_useful(key) or ITEMS_BY_KEY[key].get("damage"):
+            return None
+        item = ITEMS_BY_KEY[key]
+        self.remove_item(key)
+        result = {"healed": 0, "cured": False, "meter": 0}
+        if item.get("cure"):
+            result["cured"] = self.infected > 0 or self.burning > 0
+            self.infected = self.burning = 0
+        if item.get("heal"):
+            before = self.hp
+            boost = self.POTION_BOOST * self.has("heal_boost")
+            self.hp = min(self.max_hp, self.hp + item["heal"] + boost)
+            result["healed"] = self.hp - before
+        if item.get("meter"):
+            before = self.chin_meter
+            self.add_meter(item["meter"])
+            result["meter"] = self.chin_meter - before
+        return result
 
     def use_bomb(self):
         """Throw a bomb. Returns damage dealt (0 if out of bombs)."""
-        if self.inventory.get("bomb", 0) <= 0:
+        if not self.remove_item("bomb"):
             return 0
-        self.inventory["bomb"] -= 1
-        damage = 30 + self.level * 3
-        if self.has("bomb_power_plus_10"):
-            damage += 10
-        return damage
+        return 30 + self.level * 3 + self.BOMB_POWER * self.has("bomb_power")
 
     def try_resurrect(self):
-        """Use the Resurrect Once upgrade if available. Returns True if revived."""
-        if self.has("resurrect_once") and not self.used_resurrect:
-            self.used_resurrect = True
+        """Use Second Wind if it's ready. Returns True if revived.
+        Tier I: half HP, once per game. Tier II: full HP and cured, once per chapter."""
+        level = self.has("resurrect")
+        if not level or self.used_resurrect:
+            return False
+        self.used_resurrect = True
+        if level >= 2:
+            self.hp = self.max_hp
+            self.infected = self.burning = 0
+        else:
             self.hp = self.max_hp // 2
-            return True
-        return False
+        return True
+
+    def new_chapter(self):
+        """Leaving camp for the next chapter: Second Wind II comes back."""
+        if self.has("resurrect") >= 2:
+            self.used_resurrect = False
 
     # ---- economy -------------------------------------------------------
     def add_candy(self, amount):
-        """Add candy (doubled by the upgrade). Returns the amount actually added."""
-        if self.has("double_candy"):
-            amount *= 2
+        """Add candy. Returns the amount added."""
         self.candy += amount
+        self.stats["candy_earned"] += amount
         return amount
 
     def buy_upgrade(self, upgrade):
-        """Buy an upgrade from the catalog. Returns True on success."""
-        key, cost = upgrade["key"], upgrade["cost"]
-        if self.has(key) or self.candy < cost:
+        """Buy the next tier of an upgrade. Returns True on success."""
+        tier = self.next_tier(upgrade)
+        if tier is None or self.candy < tier["cost"]:
             return False
-        self.candy -= cost
-        self.upgrades[key] = True
-        if key == "max_hp_plus_25":
-            self.max_hp += 25
-            self.hp += 25
+        self.candy -= tier["cost"]
+        self.upgrades[upgrade["key"]] += 1
+        if upgrade["key"] == "max_hp":
+            self.max_hp += self.MAX_HP_PER_TIER
+            self.hp += self.MAX_HP_PER_TIER
         return True
+
+    # ---- saving --------------------------------------------------------
+    SAVED = ("max_hp", "hp", "candy", "battles_won", "used_resurrect", "infected", "burning")
+
+    def to_save(self):
+        data = {name: getattr(self, name) for name in self.SAVED}
+        data.update(inventory=dict(self.inventory), upgrades=dict(self.upgrades), stats=dict(self.stats))
+        return data
+
+    @classmethod
+    def from_save(cls, data):
+        p = cls()
+        for name in cls.SAVED:
+            if name in data:
+                setattr(p, name, data[name])
+        p.inventory = {k: int(v) for k, v in data.get("inventory", {}).items() if k in ITEMS_BY_KEY and v > 0}
+        for key, level in data.get("upgrades", {}).items():
+            if key in p.upgrades:                  # skip upgrades that no longer exist
+                p.upgrades[key] = int(level)
+        p.stats.update({k: v for k, v in data.get("stats", {}).items() if k in p.stats})
+        p.hp = max(1, min(p.hp, p.max_hp))
+        return p

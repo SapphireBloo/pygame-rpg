@@ -1,4 +1,4 @@
-"""Cinematic transition between levels.
+"""Cinematic transition between levels (and the camp after each boss).
 
   1. Fade the last frame of the old level to black
   2. Show a chapter title card (auto-advances; Space skips)
@@ -135,9 +135,21 @@ def chapter_card(screen, exploration, index, snapshot=None):
                            kicker=f"CHAPTER {index + 1}", on_load=on_load, snapshot=snapshot)
 
 
+CAMP_ACCENT = (255, 170, 90)
+
+
+def camp_card(screen, exploration, snapshot=None):
+    """After a chapter's boss: rest at camp."""
+    return LevelTransition(screen, exploration, "The Camp", "Rest your chin. Spend your candy.", CAMP_ACCENT,
+                           kicker=f"CHAPTER {exploration.level_index + 1} CLEARED", on_load=exploration.load_camp,
+                           snapshot=snapshot)
+
+
 def next_transition(screen, exploration):
-    """Whatever comes after the current level: the next chapter, or the ending."""
+    """Whatever comes next: camp after a chapter, then the next chapter (or the ending)."""
     snapshot = screen.copy()
+    if not exploration.in_camp:
+        return camp_card(screen, exploration, snapshot)
     if not exploration.is_last_level:
         return chapter_card(screen, exploration, exploration.level_index + 1, snapshot)
     return LevelTransition(screen, exploration, ENDING["title"], ENDING["subtitle"],

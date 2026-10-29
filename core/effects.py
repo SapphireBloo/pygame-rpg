@@ -202,14 +202,24 @@ PERFECT, GOOD, MISS = "perfect", "good", "miss"
 class TimingRing:
     """A ring that shrinks onto a target circle. Press Space as they line up.
 
-    duration   ms from appearing until the sweet spot
+    duration   ms the ring takes to close (not counting a feint's stall)
     perfect/good   half-width of the timing windows in ms
+    drift      (dx, dy) px the whole ring slides by while it closes (an arc, eased)
+    hold       feint: ms the ring freezes about two-thirds of the way in. The real
+               sweet spot comes that much later, so pressing on rhythm is early.
     The first press is the only one that counts (no mashing).
     """
 
-    def __init__(self, center, duration, perfect=70, good=160, color=(255, 215, 0), label="SPACE"):
-        self.center = center
-        self.duration = duration
+    HOLD_AT = 0.68               # a feint stalls once the ring is this far closed
+
+    def __init__(self, center, duration, perfect=70, good=160, color=(255, 215, 0), label="SPACE",
+                 drift=(0, 0), hold=0):
+        self.start_center = center
+        self.drift = drift
+        self.closing_ms = duration                # visual closing time
+        self.hold = hold
+        self.hold_at = duration * self.HOLD_AT
+        self.duration = duration + hold           # when the hit actually lands
         self.perfect = perfect
         self.good = good
         self.color = color
@@ -218,6 +228,26 @@ class TimingRing:
         self.result = None           # set on first press: PERFECT / GOOD / MISS
         self.flash = 0
         self.font = get_font(14, bold=True)
+
+    @property
+    def progress(self):
+        """How far the ring has closed, 0-1 (it pauses during a feint)."""
+        t = self.elapsed
+        if self.hold and t > self.hold_at:
+            t = self.hold_at if t < self.hold_at + self.hold else t - self.hold
+        return min(1.0, t / self.closing_ms) if self.closing_ms else 1.0
+
+    @property
+    def stalled(self):
+        return bool(self.hold) and self.hold_at < self.elapsed < self.hold_at + self.hold
+
+    @property
+    def center(self):
+        """Where the ring is right now (it slides along a gentle curve as it closes)."""
+        k = self.progress
+        dx, dy = self.drift
+        bend = math.sin(math.pi * k) * 0.35       # bow the path a little so it isn't a straight line
+        return (self.start_center[0] + dx * k - dy * bend, self.start_center[1] + dy * k + dx * bend)
 
     def press(self):
         if self.result is not None:
@@ -242,8 +272,7 @@ class TimingRing:
             return
         cx, cy = self.center
         target_r = 34
-        t = max(0.0, 1 - self.elapsed / self.duration)
-        r = target_r + 110 * t
+        r = target_r + 110 * (1 - self.progress)
         in_window = abs(self.elapsed - self.duration) <= self.good
         pygame.draw.circle(screen, (255, 255, 255), (int(cx), int(cy)), target_r, 3)
         color = self.color if in_window else (230, 230, 230)

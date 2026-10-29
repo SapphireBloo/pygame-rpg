@@ -2,12 +2,11 @@ import math
 
 import pygame
 
-from core.ui import draw_bar, get_font, WHITE, GREY
-from core.upgrades import UPGRADES
+from core.ui import draw_bar, get_font, WHITE
 
 
 class PlayerHUD:
-    """Top-left HP bar, Chin meter, status, bombs/candy, and owned upgrades."""
+    """Top-left HP bar, Chin meter, and status effects. (Candy, items, and upgrades are in the bag.)"""
 
     def __init__(self, screen, player, x=50, y=5, bar_width=300):
         self.screen = screen
@@ -33,9 +32,9 @@ class PlayerHUD:
         name = f"{p.name} - Lv {p.level}"
         self.screen.blit(render(name, True, WHITE), (x, y))
         tag_x = x + self.font.size(name)[0] + 12
-        for turns, label, color in ((p.infected, "INFECTED", (140, 230, 90)), (p.burning, "BURNING", (255, 150, 50))):
-            if turns:
-                tag = self.small.render(f"{label} ({turns})", True, color)
+        for active, label, color in ((p.infected, "INFECTED", (140, 230, 90)), (p.burning, "BURNING", (255, 150, 50))):
+            if active:   # lasts until a Remedy or Elixir cures it
+                tag = self.small.render(label, True, color)
                 self.screen.blit(tag, (tag_x, y + 5))
                 tag_x += tag.get_width() + 10
 
@@ -55,9 +54,4 @@ class PlayerHUD:
         pygame.draw.rect(self.screen, (230, 220, 200), (mx, my, mw, 12), 1)
         label = "CHIN CHECK READY!" if p.chin_ready else "CHIN"
         self.screen.blit(self.small.render(label, True, color), (mx, my + 14))
-
-        self.screen.blit(render(f"Bombs: {p.inventory.get('bomb', 0)}  Candy: {p.candy}", True, GREY),
-                         (x, y + 100))
-        owned = [u["short"] for u in UPGRADES if p.has(u["key"])]
-        if owned:
-            self.screen.blit(render("Upgrades: " + ", ".join(owned), True, (255, 215, 100)), (x, y + 130))
+        # Candy, items, and upgrades live in the bag (I) to keep the screen clear
