@@ -300,5 +300,24 @@ def main():
     pygame.quit()
 
 
+def write_crash_log():
+    """If the game crashes, save what happened to crash_log.txt next to the save game, so a
+    playtester can send it in (the Windows build has no console to show errors)."""
+    import traceback
+    from datetime import datetime
+    from core.options import DATA_DIR
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        with open(DATA_DIR / "crash_log.txt", "a", encoding="utf-8") as log:
+            log.write(f"\n=== {datetime.now():%Y-%m-%d %H:%M:%S} ===\n")
+            log.write(traceback.format_exc())
+    except OSError:
+        pass
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        write_crash_log()
+        raise

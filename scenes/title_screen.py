@@ -13,7 +13,7 @@ from core.menu_ui import ButtonMenu, PUMPKIN, hint_line
 from core.settings import FEET_Y, HERO_HEIGHT, CHARACTER_INK
 from core.ui import get_font, outlined_text, dim_screen
 
-VERSION = "demo"
+VERSION = "Playtest demo v0.1"     # bump this for each build you send out
 
 
 def _glow(color, w, h):

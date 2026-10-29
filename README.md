@@ -66,6 +66,17 @@ Settings and the save game are kept in a `.chin_check_charlie` folder in your us
    python main.py
    ```
 
+## 🧪 Making a Playtest Build
+
+- **Windows:** double-click `build_windows.bat`. It sets up its own build environment, bundles the game with
+  PyInstaller, and opens `%USERPROFILE%\ChinCheckCharlie-build`, which has:
+  - `ChinCheckCharlie-windows.zip`: testers unzip it and run `ChinCheckCharlie.exe` (no Python needed)
+  - `ChinCheckCharlie-linux-source.zip`: the game's source from your last commit, for Linux testers
+- **Linux:** testers unzip the source and run `bash run_linux.sh` (it sets up Python packages the first time).
+- `PLAYTEST.md` is the note for testers (how to run it, controls, what feedback we want). It's copied into the Windows zip.
+- Bump `VERSION` in `scenes/title_screen.py` for each build you send, so feedback says which one they played.
+- If the game crashes, it writes `crash_log.txt` to the `.chin_check_charlie` folder in the user's home folder.
+
 ## 🎵 Music
 
 Three tracks in `assets/audio/`, crossfaded automatically:
