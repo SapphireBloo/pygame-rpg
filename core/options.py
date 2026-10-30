@@ -19,6 +19,7 @@ DEFAULTS = {
     "sfx_volume": 1.0,
     "fullscreen": True,
     "difficulty": "normal",
+    "cheats": [],             # cheat codes that are on (see core/cheats.py)
 }
 
 options = dict(DEFAULTS)      # the live settings; read these anywhere
@@ -41,6 +42,8 @@ def load():
                 value = default
         elif key == "difficulty" and value not in DIFFICULTIES:
             value = default
+        elif isinstance(default, list):
+            value = [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
         options[key] = value
     return options
 

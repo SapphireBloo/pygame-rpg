@@ -109,8 +109,11 @@ class SummaryScene:
             ("counter", "Parries", str(st["parries"])),
             ("candy", "Candy earned", str(st["candy_earned"])),
             ("heavy_hands", "Upgrades forged", str(sum(player.upgrades.values()))),
+            ("golden_crumb", "Golden Crumbs found", f"{len(set(player.crumbs_found))} / 4"),
             ("revive", "Play time", _clock(st["play_ms"])),
         ]
+        if player.crumb_beaten:
+            self.rows.insert(-1, ("golden_crust", "Crumb, the Crust Eternal", "BEATEN!"))
 
     def handle_event(self, event):
         if self.time < 600:
@@ -133,13 +136,14 @@ class SummaryScene:
                                   (180, 165, 190))
         s.blit(sub, sub.get_rect(midtop=(self.rect.centerx, self.rect.y + 62)))
         y = self.rect.y + 100
+        step = min(36, 300 // len(self.rows))
         shown = min(len(self.rows), int(self.time / 140))      # rows tick in one by one
         for icon_name, label, value in self.rows[:shown]:
             draw_icon(s, icon_name, (self.rect.x + 62, y + 12), 26)
             s.blit(get_font(18).render(label, True, (215, 205, 220)), (self.rect.x + 90, y + 2))
             val = outlined_text(value, 20, GOLD, True, 2)
             s.blit(val, val.get_rect(topright=(self.rect.right - 50, y)))
-            y += 36
+            y += step
         if shown == len(self.rows):
             self.menu.draw(s)
         hint_line(s, "Enter to continue", self.rect.bottom + 22)

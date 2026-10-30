@@ -9,29 +9,31 @@ import random
 
 import pygame
 
-from core import game_state
+from core import cheats, game_state, save_game
 from core import sfx
 from core.animation import AnimatedSprite, load_gameart2d_character
-from core.assets import load_frames, load_background
+from core.assets import load_background
 from core.battle_manager import BattleManager, MOVES
 from core.difficulty import enemy_mods, timing_scale, ring_motion, FEINT_HOLD_MS
 from core.options import options
-from core.combat_options import CombatOptions, JAB, HAYMAKER, CHIN_CHECK, ITEMS
+from core.combat_options import CombatOptions, JAB, HAYMAKER, CHIN_CHECK, ITEMS, LOAF
 from core.item_picker import ItemPicker, BACK
 from core.items import ITEMS_BY_KEY
+from core.camp import camp_backdrop, crumb_animations, CRUMB_TINTS
 from core.combat_text import CombatText
 from core.effects import (Script, Shake, Particles, Swoosh, TimingRing, wait, tween, lerp, aura,
                           ease_out, ease_in, ease_in_out, PERFECT, GOOD, MISS)
 from core.end_combat_modal import EndCombatModal, Reward
 from core.enemy import Enemy
-from core.enemy_art import enemy_animations, faces_right_in_battle, battle_layout, boss_effects
+from core.enemy_art import (enemy_animations, faces_right_in_battle, battle_layout, boss_effects, draw_spotlight,
+                            crumb_boss_animations, CRUMB_PHASES)
 from core.enemy_hud import EnemyHUD
 from core.grit import Grit
 from core.levels import LEVELS
 from core.player_hud import PlayerHUD
-from core.settings import GROUND_Y, FEET_Y, HERO_HEIGHT, CHARACTER_INK, SCREEN_WIDTH
-from core.skeleton_animation import SkeletonAnimation
-from core.ui import get_font, BLOCK_BLUE, WHITE, DAMAGE_RED, HEAL_GREEN, GOLD, INK
+from core.settings import FEET_Y, HERO_HEIGHT, CHARACTER_INK, SCREEN_WIDTH
+from core.jack_panel import JackPanel
+from core.ui import get_font, outlined_text, BLOCK_BLUE, WHITE, DAMAGE_RED, HEAL_GREEN, GOLD, INK
 
 # Turn states
 INTRO = "intro"
@@ -56,7 +58,17 @@ RING_TOP, RING_BOTTOM = 135, 505   # keep timing rings clear of the HUD and the 
 COMBO_BLUE = (120, 220, 255)   # follow-up jab rings and combo counter
 DAZE_GOLD = (255, 225, 90)
 OFF_BALANCE = (255, 150, 80)
-FLURRY_RED = (255, 130, 110)   # the enemy's ring after a Haymaker (tighter windows)
+FLURRY_RED = (255, 130, 110)
+
+# Crumb, the secret boss (core/levels.py SECRET_BOSS)
+CRUMB_STRING_CHANCE = 0.5     # how often his regular attacks are flurries
+CRUMB_FEINT_BONUS = 0.1      # on top of the chapter 4 boss feint chance
+CRUMB_RISE_HEAL = 0.06        # share of max HP he heals each time he rises
+CRUMB_RISE_DAMAGE = 1.12      # and how much harder he hits
+BUTTER_SLICK_CHANCE = 0.3     # after his turn, from phase 2: the next turn's rings slide around
+SLICK_MOTION = 2.2            # how much more the rings jump and drift while it's slick
+BATTLE_LAYOUT_CRUMB_MID = 150
+CAMP_ARENA = {"name": "The Camp", "background": "camp", "camp": True, "accent": (255, 170, 90), "monsters": []}   # the enemy's ring after a Haymaker (tighter windows)
 
 WIN_COMMENTS = [
     "Not bad, kid.",
@@ -81,16 +93,22 @@ class BattleScene:
         self.player = player
         level = level or LEVELS[0]
         spec = enemy_spec or level["monsters"][0]
+        if spec.get("arena") == "camp":       # Crumb's secret fight happens at camp
+            level = CAMP_ARENA
         self.is_ghost = spec["sprite"] == "ghost"
         kind = spec.get("kind") or ("ghost" if self.is_ghost else "zombie")
         # Monsters get tougher deeper in, and with the difficulty setting (core/difficulty.py)
-        self.chapter = LEVELS.index(level) if level in LEVELS else 0
+        self.chapter = spec.get("chapter", LEVELS.index(level) if level in LEVELS else 0)
         self.difficulty = options["difficulty"]
         boss = spec.get("boss", False)
         self.enemy = Enemy(kind=kind, mods=enemy_mods(self.chapter, boss, self.difficulty),
                            **{k: v for k, v in spec.items()
                               if k not in ("sprite", "first_strike", "kind", "lunge", "taunt", "defeat_quote")})
         self.ring_jump, self.ring_drift = ring_motion(self.chapter, boss, self.difficulty)
+        self.slick = False                    # Crumb's Butter Slick: the rings slide much more for a turn
+        if kind == "bread":                   # the secret boss strings hits and feints more than anyone
+            self.enemy.string_chance = max(self.enemy.string_chance, CRUMB_STRING_CHANCE)
+            self.enemy.feint_chance += CRUMB_FEINT_BONUS
         self.spec = spec
         self.lunge = spec.get("lunge", DEFAULT_LUNGE.get(kind, 70))
         self.foe_faces_right = faces_right_in_battle(spec["sprite"])
@@ -111,6 +129,8 @@ class BattleScene:
         self.projectile = None                # the Fire Worm's fireball in flight
 
         self.rules = BattleManager(player, self.enemy, timing_scale(self.difficulty))
+        if player.jam_start:                  # Crumb's Jam blessing (or Crumb himself): fights start with some Chin meter
+            player.chin_meter = max(player.chin_meter, player.JAM_METER)
         self.options = CombatOptions(screen, player)
         self.item_picker = ItemPicker(screen, player)
         self.end_modal = EndCombatModal(screen)
@@ -120,6 +140,8 @@ class BattleScene:
 
         # World
         self.background = load_background(level["background"])
+        if self.background is None and level.get("camp"):
+            self.background = camp_backdrop(screen.get_size())
         self.canvas = pygame.Surface(screen.get_size())
         self.grit = Grit(screen.get_size())
         self.grit.set_level(level)
@@ -127,9 +149,13 @@ class BattleScene:
         # Fighters
         self.hero = AnimatedSprite(load_gameart2d_character("charlie", HERO_HEIGHT, ink=CHARACTER_INK))
         self.hero_x = HERO_HOME_X
+        # Crumb fights alongside Charlie once he's joined (Loaf Launch)
+        self.crumb = AnimatedSprite(crumb_animations(CRUMB_TINTS[4])) if player.companion else None
+        self.crumb_x, self.crumb_lift = HERO_HOME_X - 95, 0.0
         self.hero_facing = True
         self.hero_knock = 0.0
         self.foe = AnimatedSprite(enemy_animations(spec["sprite"], level.get("ghost_tint")))
+        self.foe_sprite = spec["sprite"]
         self.foe_x = self.home_x
         self.foe_knock = 0.0
 
@@ -162,8 +188,7 @@ class BattleScene:
 
         self.whisper_jack = None
         if not game_state.whisper_jack_combat_intro_done:
-            frames = load_frames("Skeleton", flip_x=True)
-            self.whisper_jack = SkeletonAnimation(330, GROUND_Y, frames, JACK_COMBAT_INTRO)
+            self.whisper_jack = JackPanel(JACK_COMBAT_INTRO)
             self.state = INTRO
         else:
             self._run(self._opening())
@@ -247,6 +272,8 @@ class BattleScene:
 
         wdt = dt * self.time_scale
         self.hero.update(wdt)
+        if self.crumb:
+            self.crumb.update(wdt)
         if not (self.ring and self.ring.stalled and self.state == ACTION and self.feinting):
             self.foe.update(wdt)                 # (a feint freezes the enemy mid-swing)
         if self.foe.name == "hit" and self.foe.finished:
@@ -302,12 +329,17 @@ class BattleScene:
             self.foe.play("idle")
         if self.first_strike:
             yield from self._first_strike()
+            if not self.enemy.is_alive:                     # (only with the one-hit cheat)
+                yield from self._knockout()
+                return
         yield from self._begin_player_turn(tick=False)
 
     def _round(self, choice):
         self.banner = None
         if choice in (JAB, HAYMAKER, CHIN_CHECK):
             yield from self._attack(choice)
+        elif choice == LOAF:
+            yield from self._loaf_launch()
         elif isinstance(choice, tuple) and choice[0] == "item":
             yield from self._use_item(choice[1])
 
@@ -316,12 +348,16 @@ class BattleScene:
             return
         if self.enemy.check_enrage():
             yield from self._enrage()
+        if self.enemy.check_phase():
+            yield from self._rise()
         yield from self._enemy_turn()
         if not self.enemy.is_alive:          # parry counter finished it
             yield from self._knockout()
             return
         if self.enemy.check_enrage():
             yield from self._enrage()
+        if self.enemy.check_phase():
+            yield from self._rise()
         if not self.player.is_alive and not (yield from self._survive()):
             return
         yield from self._begin_player_turn()
@@ -377,6 +413,40 @@ class BattleScene:
             yield from wait(180)
         yield from wait(300)
 
+    def _rise(self):
+        """Crumb reaches his next phase: he grows, toasts darker, heals a little, and hits harder."""
+        phase = self.enemy.phase
+        sfx.play("enrage")
+        word = {2: "CRUMB IS TOASTED!", 3: "CRUMB IS BURNT!"}.get(phase, "CRUMB RISES!")
+        self._shout("CRUMB RISES!", self.glow_hot, 46, y=200)
+        self.shake.add(14)
+        cx, cy = self.foe_center
+        for _ in range(3):
+            self.particles.burst(cx, cy, [self.glow, self.glow_hot, (255, 255, 230)], 20, 420, 800, 7, drag=2)
+            yield from wait(160)
+        self.foe.animations = crumb_boss_animations(phase)
+        self.foe.play("idle", restart=True)
+        self.foe_mid = round(BATTLE_LAYOUT_CRUMB_MID * CRUMB_PHASES[phase][0] / CRUMB_PHASES[1][0])
+        healed = self.enemy.heal(round(self.enemy.max_hp * CRUMB_RISE_HEAL))
+        self.enemy.damage_mult *= CRUMB_RISE_DAMAGE
+        self.enemy.string_chance = min(0.8, self.enemy.string_chance + 0.1)
+        self.foe.flash = 300
+        self._say(word, (cx, cy - 210), (255, 200, 120), 26, bold=True, pop=True, life=1400)
+        if healed:
+            self._say(f"+{healed} HP", (cx, cy - 170), HEAL_GREEN, 26, bold=True, pop=True)
+            self.particles.heal(cx, cy)
+        yield from wait(700)
+
+    def _butter_slick(self):
+        """Crumb butters the floor: next turn the timing rings slide around much more."""
+        self.slick = True
+        self._shout("BUTTER SLICK!", (255, 225, 110), 40, y=210)
+        self._say("The rings are slippery!", (self.screen.get_width() / 2, 255), (255, 240, 180), 20, bold=True,
+                  life=1300)
+        self.particles.burst(self.hero_x, FEET_Y - 10, [(255, 230, 120), (255, 245, 190)], 26, 300, 700, 6,
+                             gravity=-120, drag=1.5)
+        yield from wait(500)
+
     # ---- Charlie's moves ---------------------------------------------------
     def _dash(self, target_x, ms=260, facing=True):
         self.hero_facing = facing
@@ -426,7 +496,8 @@ class BattleScene:
         angle = random.uniform(0, 2 * math.pi)
         if side:
             angle = random.uniform(math.pi * 1.1, math.pi * 1.9) if side > 0 else random.uniform(0.1, 0.9) * math.pi
-        reach = self.ring_jump * random.uniform(0.45, 1.0)
+        slick = SLICK_MOTION if self.slick else 1.0
+        reach = self.ring_jump * slick * random.uniform(0.45, 1.0)
         x = target[0] + reach * math.cos(angle)
         y = target[1] + reach * math.sin(angle) * 0.8
         x = max(70, min(self.screen.get_width() - 70, x))
@@ -434,7 +505,7 @@ class BattleScene:
         drift = (0, 0)
         if self.ring_drift:
             heading = random.uniform(0, 2 * math.pi)
-            drift = (self.ring_drift * math.cos(heading), self.ring_drift * math.sin(heading))
+            drift = (self.ring_drift * slick * math.cos(heading), self.ring_drift * slick * math.sin(heading))
         return (x, y), drift
 
     def _ring(self, ring_ms, perfect, good, color=(255, 215, 0), label="SPACE", gather=False, side=0):
@@ -618,6 +689,44 @@ class BattleScene:
         self._say(f"-{dmg}", (cx, cy - 95), (255, 140, 60), 40, bold=True, pop=True)
         yield from wait(400)
 
+    def _loaf_launch(self):
+        """Crumb hurls himself at the enemy, spinning: a big hit that dazes it all the way."""
+        self.options.loaf_used = True
+        self._shout("LOAF LAUNCH!", (255, 205, 120), 42, y=180)
+        sfx.play("swing_heavy")
+        home = self.crumb_x
+        cx, cy = self.foe_center
+        rise = FEET_Y - cy                                  # how high the enemy's middle is
+        self.crumb.play("jump", restart=True)
+
+        def fly(k):
+            self.crumb_x = lerp(home, cx - 30, k)
+            self.crumb_lift = rise * k + 180 * 4 * k * (1 - k)
+            self.crumb.angle = -720 * k
+
+        yield from tween(400, fly, ease_in)
+        dmg = self.rules.loaf_launch()
+        sfx.play("crit")
+        sfx.play("super_crack", 0.6)
+        self._foe_flinch()
+        self.foe.flash, self.foe_knock, self.hitstop = 140, 55, 120
+        self.shake.add(16)
+        self.particles.hit_sparks(cx - 25, cy, 0.0, big=True)
+        self.particles.burst(cx - 20, cy, [(255, 215, 130), (230, 170, 80), (255, 240, 200)], 30, 420, 700, 6, drag=2.5)
+        self._say(f"-{dmg}", (cx, cy - 95), DAMAGE_RED, 40, bold=True, pop=True)
+        self._say(f"DAZED x{self.enemy.daze}", (cx + 70, cy - 135), DAZE_GOLD, 20, bold=True, life=1100)
+        yield from wait(180)
+
+        def back(k):
+            self.crumb_x = lerp(cx - 30, home, k)
+            self.crumb_lift = rise * (1 - k) + 120 * 4 * k * (1 - k)
+            self.crumb.angle = -720 + 720 * k
+
+        yield from tween(460, back, ease_out)
+        self.crumb.angle, self.crumb_lift = 0, 0.0
+        self.crumb.play("idle")
+        yield from wait(150)
+
     def _first_strike(self):
         self._shout("FIRST STRIKE!", (255, 200, 80), 40, y=180)
         yield from self._dash(self.foe_x - self.strike_gap, 220)
@@ -638,23 +747,30 @@ class BattleScene:
     def _enemy_turn(self):
         """The enemy attacks: one swing, or from Chapter 2 on sometimes a flurry of 2-3."""
         heavy = self.enemy.next_heavy
-        hits = 1 if heavy else self.enemy.next_hits
+        hits = (self.enemy.heavy_hits if heavy else self.enemy.next_hits)
         has_attack_anim = self.foe.has("attack")
         if hits > 1:
             fx, fy = self.foe_center
-            self._say(f"{hits}-HIT FLURRY!", (fx, fy - 175), FLURRY_RED, 24, bold=True, pop=True, life=1200)
+            label = f"{self.enemy.heavy_name.removeprefix('a ')}!" if heavy else f"{hits}-HIT FLURRY!"
+            self._say(label, (fx, fy - 175), FLURRY_RED, 24, bold=True, pop=True, life=1200)
+        was_slick = self.slick
         for hit in range(1, hits + 1):
             result = yield from self._enemy_swing(heavy, hit, hits, has_attack_anim)
             if result.killed and hit < hits:              # Charlie went down mid-flurry
                 self.rules.end_enemy_turn()
                 yield from self._retreat_foe(has_attack_anim)
                 return
+        if was_slick:
+            self.slick = False
+        elif self.enemy.kind == "bread" and self.enemy.phase >= 2 and self.enemy.is_alive \
+                and random.random() < BUTTER_SLICK_CHANCE:
+            yield from self._butter_slick()
 
     def _enemy_swing(self, heavy, hit, hits, has_attack_anim):
         """One enemy swing with its defense ring. Returns the DefenseResult."""
         kind = self.enemy.kind
         last = hit == hits
-        if heavy:                                     # wind-up tell
+        if heavy and hit == 1:                        # wind-up tell
             yield from tween(320, lambda t: setattr(self.foe, "angle", 10 * math.sin(math.pi * t)))
         sound = self.sounds.get("heavy" if heavy else "attack") or \
             {"zombie": "zombie_bite", "ghost": "ghost_wail"}.get(kind, "whoosh")
@@ -695,13 +811,22 @@ class BattleScene:
             self.hero.angle = 8                             # still leaning from that swing
         center, drift = self._ring_spot(self.hero_center)
         label = f"{hit}/{hits}" if hits > 1 else "SPACE"
-        self.ring = TimingRing(center, impact_ms, perfect, good, ring_color, label, drift=drift, hold=hold)
+        crumb = kind == "bread"          # Crumb's feints are readable: a tell, and an early press is forgiven
+        self.ring = TimingRing(center, impact_ms, perfect, good, ring_color, label, drift=drift, hold=hold,
+                               forgive_early=crumb)
         start_x, target_x = self.foe_x, self.home_x - lunge
         elapsed = 0
+        told = False
         while elapsed < self.ring.duration:
             elapsed += (yield)
             self.foe_x = lerp(start_x, target_x, ease_in(self.ring.progress))
             self.foe.angle = 3 * math.sin(self.time / 22) if self.ring.stalled else 0   # the feint's hitch
+            if crumb and self.ring.stalled and not told:   # the tell: he flashes and goes "...!"
+                told = True
+                self.foe.flash = 110
+                sfx.play("whoosh", 0.35)
+                fx, fy = self.foe_center
+                self._say("...!", (fx, fy - 150), (255, 230, 160), 24, bold=True, life=600)
             if launch_ms is not None and elapsed >= launch_ms and self.projectile is None:
                 self._launch_fireball(impact_ms - elapsed)
         self.foe.angle = 0
@@ -772,6 +897,13 @@ class BattleScene:
             self._say("BURNING!", (hx, hy - 180), (255, 150, 50), 24, bold=True, pop=True)
             self.particles.burst(hx, hy, [(255, 150, 40), (255, 220, 90), (230, 70, 20)], 24, 320, 700, 7,
                                  gravity=-250, drag=1.5)
+        if result.snatched:                          # Gorge grabs a fistful of candy and gulps it down
+            fx, fy = self.foe_center
+            sfx.play("bite", 0.8)
+            self.particles.burst(self.hero_x, FEET_Y - 90, [(255, 200, 90), (255, 120, 60), (255, 240, 200)],
+                                 18, 380, 700, 6, drag=2.0)
+            self._say(f"-{result.snatched} candy!", (self.hero_x, FEET_Y - 220), (255, 200, 90), 26, bold=True,
+                      pop=True, life=1500)
         if result.stolen:
             fx, fy = self.foe_center
             self._say(f"+{result.stolen} HP stolen", (fx, fy - 170), (150, 255, 160), 24, bold=True, pop=True)
@@ -905,6 +1037,8 @@ class BattleScene:
         sfx.play("victory")
         earned = self.rules.award_candy()
         self.player.battles_won += 1
+        if self.enemy.kind == "bread":          # Crumb, beaten: he joins Charlie (the camp plays his speech)
+            self.player.join_crumb()
         game_state.first_battle_done = True
         self.outcome = "won"
         self.state = RESULT
@@ -922,15 +1056,15 @@ class BattleScene:
                             subtitle=f"{self.enemy.name} got chin checked.")
 
     def _lose(self):
+        """Charlie's down. main.py sends him back to the last camp (or the start of Chapter 1)."""
         self.player.stats["losses"] += 1
-        dropped = self.player.candy // 2
-        self.player.candy -= dropped
         self.outcome = "lost"
         self.state = RESULT
-        lost = [Reward("candy", "candy dropped", -dropped, (255, 110, 100))] if dropped else []
-        self.end_modal.open("Chin Checked!", lost,
-                            quote="Get up, kid. Pumpkins bounce.", subtitle="Charlie hits the dirt...",
-                            button_label="Get Up", mood="lose")
+        at_camp = save_game.latest is not None
+        self.end_modal.open("Chin Checked!", [],
+                            quote="Get up, kid. Pumpkins bounce.",
+                            subtitle="Back to your last camp." if at_camp else "Back to the start of the chapter.",
+                            button_label="Back to Camp" if at_camp else "Try Again", mood="lose")
 
     def _finish(self):
         self.player.off_balance = False
@@ -956,11 +1090,16 @@ class BattleScene:
                 glow = aura(self.glow_hot if self.enemy.enraged else self.glow, self.aura_size or (240, 280))
                 glow.set_alpha(int(200 + 55 * math.sin(self.time / 300)))
                 c.blit(glow, glow.get_rect(midbottom=(fx, FEET_Y + 30)))
-            self.grit.draw_shadow(c, fx, FEET_Y, self.shadow_size * (1.0 - min(0.4, self.foe.lift / 250)))
+            shadow = self.shadow_size if self.enemy.is_alive or self.foe_sprite != "gorge" else 0.8   # (he shrinks)
+            self.grit.draw_shadow(c, fx, FEET_Y, shadow * (1.0 - min(0.4, self.foe.lift / 250)))
+            draw_spotlight(c, self.foe_sprite, self.foe, fx, FEET_Y, self.foe_faces_right)   # (Gorge's, as he falls)
             self.foe.draw(c, fx, FEET_Y, facing_right=self.foe_faces_right)
         for surf, x, y, life in self.afterimages:
             surf.set_alpha(int(110 * life / 200))
             c.blit(surf, (x, y))
+        if self.crumb:                                   # Crumb, right behind Charlie
+            self.grit.draw_shadow(c, self.crumb_x, FEET_Y, 0.55)
+            self.crumb.draw(c, self.crumb_x, FEET_Y - self.crumb_lift, True)
         self.hero.draw(c, hx, FEET_Y, self.hero_facing)
         self._draw_effects(c)
         if self.enemy.daze and self.enemy.is_alive:
@@ -994,10 +1133,13 @@ class BattleScene:
             self.ring.draw(self.screen)
         self.player_hud.draw()
         self.enemy_hud.draw()
+        if cheats.one_shot():                          # a reminder that the one-hit cheat is on
+            tag = outlined_text("CHEAT: ONE-HIT KO", 14, (255, 120, 200), True, 2)
+            self.screen.blit(tag, tag.get_rect(midtop=(self.screen.get_width() // 2, 8)))
         if self.banner and self.state == PLAYER_TURN:
             pulse = int(200 + 55 * math.sin(self.time / 140))
-            text = self.big_font.render("!! " + self.banner, True, (255, pulse // 2, 60))
-            self.screen.blit(text, (self.screen.get_width() - text.get_width() - 20, 88))
+            text = outlined_text("!! " + self.banner, 19, (255, pulse // 2, 60), True, 2)
+            self.screen.blit(text, text.get_rect(topright=(self.screen.get_width() - 18, 100)))
         for t in self.texts:
             t.draw(self.screen)
         if self.state == INTRO:

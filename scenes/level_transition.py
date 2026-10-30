@@ -138,18 +138,33 @@ def chapter_card(screen, exploration, index, snapshot=None):
 CAMP_ACCENT = (255, 170, 90)
 
 
-def camp_card(screen, exploration, snapshot=None):
-    """After a chapter's boss: rest at camp."""
+def camp_card(screen, exploration, snapshot=None, returning=False):
+    """After a chapter's boss: rest at camp. returning=True for Continue."""
     return LevelTransition(screen, exploration, "The Camp", "Rest your chin. Spend your candy.", CAMP_ACCENT,
-                           kicker=f"CHAPTER {exploration.level_index + 1} CLEARED", on_load=exploration.load_camp,
-                           snapshot=snapshot)
+                           kicker=f"CHAPTER {exploration.level_index + 1} CLEARED",
+                           on_load=lambda: exploration.load_camp(arriving=not returning), snapshot=snapshot)
+
+
+def respawn_card(screen, exploration, at_camp, snapshot=None):
+    """Charlie got Chin Checked: back to the last camp (or the start of Chapter 1)."""
+    if at_camp:
+        return LevelTransition(screen, exploration, "Back at Camp", "Shake it off, kid. Everything since camp? Gone.",
+                               CAMP_ACCENT, kicker="CHIN CHECKED", snapshot=snapshot,
+                               on_load=lambda: exploration.load_camp(arriving=False))
+    level = LEVELS[exploration.level_index]
+    return LevelTransition(screen, exploration, level["name"], "Shake it off, kid. From the top.", level["accent"],
+                           kicker="CHIN CHECKED", snapshot=snapshot)
 
 
 def next_transition(screen, exploration):
     """Whatever comes next: camp after a chapter, then the next chapter (or the ending)."""
     snapshot = screen.copy()
-    if not exploration.in_camp:
+    if not exploration.in_camp and not exploration.level.get("final"):
         return camp_card(screen, exploration, snapshot)
+    if not exploration.in_camp:                         # the final chapter: no camp after it, straight to the end
+        return LevelTransition(screen, exploration, ENDING["title"], ENDING["subtitle"],
+                               exploration.level["accent"], on_load=exploration.finish,
+                               snapshot=snapshot, auto_advance=False)
     if not exploration.is_last_level:
         return chapter_card(screen, exploration, exploration.level_index + 1, snapshot)
     return LevelTransition(screen, exploration, ENDING["title"], ENDING["subtitle"],

@@ -1,5 +1,6 @@
 import random
 
+from core import cheats
 from core.difficulty import STRING_HIT_DAMAGE
 
 # What makes each enemy type play differently
@@ -30,7 +31,29 @@ KINDS = {
     # The Demon's Hellfire Cleave does both: burns AND drains the Chin meter
     "demon": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "a HELLFIRE CLEAVE",
               "attack_verb": "cleaves", "burn_chance": 0.0, "meter_drain": 25, "heavy_chance": 0.35},
+    # Crumb, the secret boss: no enrage. He RISES through three phases instead (bread, toast,
+    # burnt toast), and his heavy attack is a 5-hit Crouton Barrage.
+    "bread": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "a CROUTON BARRAGE",
+              "attack_verb": "bonks", "heavy_chance": 0.3, "heavy_hits": 5, "phases": 3},
+    # --- The Void ---
+    # Catto: a little black cat... until its mouth opens. Quick, and its heavy bite drains the Chin meter.
+    "catto": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "a VOID MAW",
+              "attack_verb": "bites", "meter_drain": 20, "heavy_chance": 0.3},
+    # The Mad Ghost: a ghost (sloppy hits pass through) with blades
+    "madghost": {"phase_chance": 0.15, "infect_chance": 0.0, "heavy_name": "a TRIPLE SLASH",
+                 "attack_verb": "slashes", "heavy_chance": 0.3, "heavy_hits": 3},
+    # The Mage: its vortex drains the Chin meter and burns
+    "mage": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "a VOID VORTEX",
+             "attack_verb": "hexes", "meter_drain": 30, "burn_chance": 0.0, "heavy_chance": 0.35},
+    # The Abomination: armored like a knight (untimed hits do half), tentacle barrage
+    "abomination": {"phase_chance": 0.0, "infect_chance": 0.2, "heavy_name": "a TENTACLE LASH",
+                    "attack_verb": "lashes", "armor": 0.5, "heavy_chance": 0.3, "heavy_hits": 3},
+    # Gorge, Taker of Worlds: the bully. His Candy Snatch steals candy (and he eats it to heal)
+    # unless Charlie blocks it. Beat him and you get every piece back.
+    "bully": {"phase_chance": 0.0, "infect_chance": 0.0, "heavy_name": "a CANDY SNATCH",
+              "attack_verb": "pounds", "heavy_chance": 0.35, "candy_steal": (3, 6)},
 }
+BARRAGE_HIT = 0.7          # each hit of a multi-hit heavy attack (Crouton Barrage)
 
 ENRAGED_HEAVY_CHANCE = 0.55
 ENRAGED_DAMAGE = 1.2
@@ -64,6 +87,11 @@ class Enemy:
         self.burns = "burn_chance" in traits
         self.armor = traits.get("armor", 1.0)               # damage multiplier for untimed hits
         self.heavy_chance = traits.get("heavy_chance", HEAVY_CHANCE)
+        self.heavy_hits = traits.get("heavy_hits", 1)        # swings in its heavy attack
+        self.phases = traits.get("phases", 0)                # >1: rises through phases instead of enraging
+        self.candy_steal = traits.get("candy_steal")         # (min, max) candy his heavy hit snatches
+        self.stolen = 0                                      # candy he's taken this fight (you win it back)
+        self.phase = 1
         self.boss = boss
         self.enraged = False
         self.next_heavy = False    # telegraphed intent for its next attack
@@ -104,7 +132,9 @@ class Enemy:
         dmg = random.randint(*self.damage_range) * self.damage_mult
         if self.enraged:
             dmg *= ENRAGED_DAMAGE
-        if self.next_heavy:
+        if self.next_heavy and string_hit:
+            dmg *= BARRAGE_HIT
+        elif self.next_heavy:
             dmg *= HEAVY_MULTIPLIER
         elif string_hit:
             dmg *= STRING_HIT_DAMAGE
@@ -112,9 +142,22 @@ class Enemy:
 
     def check_enrage(self):
         """Bosses enrage once at half HP. Returns True on the turn it happens."""
-        if self.boss and not self.enraged and self.is_alive and self.hp <= self.max_hp // 2:
+        if self.boss and not self.phases and not self.enraged and self.is_alive and self.hp <= self.max_hp // 2:
             self.enraged = True
             self.daze = 0             # the rage shakes off any Daze
+            return True
+        return False
+
+    def check_phase(self):
+        """Phase bosses (Crumb) move to the next phase at each third of their HP.
+        Returns True on the turn a new phase starts."""
+        if self.phases < 2 or not self.is_alive:
+            return False
+        lost = 1 - self.hp / self.max_hp
+        target = min(self.phases, 1 + int(lost * self.phases + 1e-9))
+        if target > self.phase:
+            self.phase = target
+            self.daze = 0
             return True
         return False
 
@@ -124,6 +167,8 @@ class Enemy:
         return self.hp - before
 
     def take_damage(self, amount):
+        if amount > 0 and cheats.one_shot():      # (cheat code: anything that lands knocks it out)
+            amount = self.hp
         self.hp = max(0, self.hp - amount)
         return amount
 

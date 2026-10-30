@@ -213,6 +213,30 @@ def _burst(surf, cx, cy, s, color):
     _poly(surf, color, pts, 2)
 
 
+BREAD_SHEET = "bread/bread_spritesheet.png"
+
+
+@lru_cache(maxsize=None)
+def _bread(tint=None):
+    """Crumb's idle frame (cropped), optionally tinted (golden crumbs, the trophy)."""
+    from core.settings import IMAGES_DIR
+    sheet = pygame.image.load(str(IMAGES_DIR / BREAD_SHEET)).convert_alpha()
+    frame = sheet.subsurface((32, 0, 32, 32)).copy()
+    frame = frame.subsurface(frame.get_bounding_rect()).copy()
+    if tint:
+        frame.fill(tint, special_flags=pygame.BLEND_RGB_MULT)
+    return frame
+
+
+def _bread_icon(surf, cx, cy, s, tint=None, legs=True):
+    frame = _bread(tint)
+    if not legs:                                  # crumbs don't have legs
+        frame = frame.subsurface((0, 0, frame.get_width(), frame.get_height() - 3))
+    k = s / max(frame.get_size())
+    img = pygame.transform.scale(frame, (max(1, int(frame.get_width() * k)), max(1, int(frame.get_height() * k))))
+    surf.blit(img, img.get_rect(center=(cx, cy)))
+
+
 def _draw(surf, name, s):
     c = s / 2
     if name == "candy":
@@ -285,6 +309,48 @@ def _draw(surf, name, s):
                                                          (c + s * 0.18, c - s * 0.02)], 2)
     elif name == "horn":
         _horn(surf, c, c, s, (190, 40, 30))
+    elif name == "crumb":                           # Crumb himself
+        _bread_icon(surf, c, c, s * 0.9)
+    elif name == "golden_crumb":                    # a little golden slice, glowing
+        pygame.draw.circle(surf, (255, 220, 120, 70), (c, c), s * 0.46)
+        _bread_icon(surf, c, c, s * 0.72, tint=(255, 215, 110), legs=False)
+        for dx, dy in ((0.3, -0.32), (-0.34, 0.2)):
+            pygame.draw.circle(surf, (255, 250, 210), (c + dx * s, c + dy * s), max(1, s * 0.05))
+    elif name == "golden_crust":                    # the trophy: a burnished slice with a ribbon
+        pygame.draw.circle(surf, (255, 200, 80, 80), (c, c), s * 0.48)
+        _bread_icon(surf, c, c - s * 0.06, s * 0.74, tint=(220, 150, 60), legs=False)
+        ribbon = [(c - s * 0.12, c + s * 0.22), (c + s * 0.12, c + s * 0.22), (c + s * 0.2, c + s * 0.46),
+                  (c, c + s * 0.36), (c - s * 0.2, c + s * 0.46)]
+        _poly(surf, (210, 50, 60), ribbon, 2)
+    elif name == "butter":                          # a pat of butter on a little dish
+        dish = pygame.Rect(0, 0, s * 0.86, s * 0.26)
+        dish.center = (c, c + s * 0.22)
+        pygame.draw.ellipse(surf, INK, dish.inflate(4, 4))
+        pygame.draw.ellipse(surf, (170, 200, 230), dish)
+        pat = [(c - s * 0.28, c - s * 0.02), (c + s * 0.18, c - s * 0.12), (c + s * 0.3, c + s * 0.12),
+               (c - s * 0.16, c + s * 0.22)]
+        _poly(surf, (255, 225, 90), pat, 2)
+        pygame.draw.line(surf, (255, 245, 180), (c - s * 0.2, c), (c + s * 0.14, c - s * 0.08), 2)
+    elif name == "jam":                             # a jam jar with a checked cloth lid
+        jar = pygame.Rect(0, 0, s * 0.6, s * 0.56)
+        jar.midbottom = (c, c + s * 0.44)
+        pygame.draw.rect(surf, INK, jar.inflate(4, 4), border_radius=6)
+        pygame.draw.rect(surf, (200, 30, 60), jar, border_radius=5)
+        pygame.draw.rect(surf, (240, 120, 140), (jar.x + 4, jar.y + 5, 4, jar.height - 12), border_radius=2)
+        lid = pygame.Rect(0, 0, s * 0.74, s * 0.2)
+        lid.midbottom = (c, jar.top + 3)
+        pygame.draw.rect(surf, INK, lid.inflate(4, 4), border_radius=4)
+        pygame.draw.rect(surf, (245, 245, 245), lid, border_radius=3)
+        for i in range(4):
+            pygame.draw.rect(surf, (220, 60, 70), (lid.x + i * lid.width / 4, lid.y, lid.width / 8, lid.height))
+    elif name == "sugar":                           # a sugar cube, drawn in 3D
+        top = [(c, c - s * 0.36), (c + s * 0.32, c - s * 0.2), (c, c - s * 0.04), (c - s * 0.32, c - s * 0.2)]
+        left = [(c - s * 0.32, c - s * 0.2), (c, c - s * 0.04), (c, c + s * 0.38), (c - s * 0.32, c + s * 0.2)]
+        right = [(c, c - s * 0.04), (c + s * 0.32, c - s * 0.2), (c + s * 0.32, c + s * 0.2), (c, c + s * 0.38)]
+        _poly(surf, (250, 250, 255), top, 2)
+        _poly(surf, (215, 220, 235), left, 2)
+        _poly(surf, (190, 195, 215), right, 2)
+        pygame.draw.circle(surf, (255, 255, 255), (c + s * 0.34, c - s * 0.36), max(1, s * 0.05))
     elif name == "bag":                             # a tied-up sack
         sack = [(c - s * 0.3, c - s * 0.08), (c + s * 0.3, c - s * 0.08), (c + s * 0.4, c + s * 0.32),
                 (c + s * 0.26, c + s * 0.44), (c - s * 0.26, c + s * 0.44), (c - s * 0.4, c + s * 0.32)]

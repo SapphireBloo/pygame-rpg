@@ -1,6 +1,6 @@
 """The title screen: the camp forest drifting by, Charlie and Whisper Jack, and the main menu.
 
-handle_event returns "new", "continue", "settings", "controls", "credits", "quit", or None.
+handle_event returns "new", "continue", "settings", "controls", "cheats", "credits", "quit", or None.
 """
 import math
 
@@ -13,7 +13,7 @@ from core.menu_ui import ButtonMenu, PUMPKIN, hint_line
 from core.settings import FEET_Y, HERO_HEIGHT, CHARACTER_INK
 from core.ui import get_font, outlined_text, dim_screen
 
-VERSION = "Playtest demo v0.1"     # bump this for each build you send out
+VERSION = "Playtest demo v0.2"     # bump this for each build you send out
 
 
 def _glow(color, w, h):
@@ -36,7 +36,7 @@ class TitleScreen:
         self.glow = _glow(PUMPKIN, 620, 200)
         self.time = 0
         self.save_info = None
-        self.menu = ButtonMenu([], screen.get_width() // 2, 238, width=250, height=42, gap=11)
+        self.menu = ButtonMenu([], screen.get_width() // 2, 232, width=250, height=38, gap=9)
         self.set_save(save_info)
 
     def set_save(self, save_info):
@@ -46,6 +46,7 @@ class TitleScreen:
             ("new", "New Game"),
             ("settings", "Settings"),
             ("controls", "Controls"),
+            ("cheats", "Cheats"),
             ("credits", "Credits"),
             ("quit", "Quit"),
         ])

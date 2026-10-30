@@ -26,8 +26,8 @@ from core.settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, TITLE, MUSIC_TRACKS
 from scenes.battle_scene import BattleScene, PLAYER_TURN, ACTION, INTRO
 from scenes.credits_scene import CreditsScene, SummaryScene
 from scenes.exploration_scene import ExplorationScene
-from scenes.level_transition import chapter_card, camp_card, next_transition
-from scenes.menus import SettingsMenu, ControlsMenu, PauseMenu
+from scenes.level_transition import chapter_card, camp_card, next_transition, respawn_card
+from scenes.menus import SettingsMenu, ControlsMenu, PauseMenu, CheatMenu
 from scenes.title_screen import TitleScreen
 
 
@@ -87,6 +87,7 @@ class Game:
     # ---- starting and leaving a run --------------------------------------
     def new_game(self):
         game_state.reset()
+        save_game.latest = None                 # no checkpoint yet: dying restarts Chapter 1
         self.player = Player()
         self.exploration = ExplorationScene(self.screen, self.player)
         self.battle = None
@@ -98,11 +99,30 @@ class Game:
         if not data:
             self.title.set_save(None)
             return
+        save_game.latest = data
         self.player, chapter = save_game.restore(data)
         self.exploration = ExplorationScene(self.screen, self.player, chapter)
         self.battle = None
-        self.transition = camp_card(self.screen, self.exploration)   # loads the camp behind the card
+        self.transition = camp_card(self.screen, self.exploration, returning=True)   # loads the camp behind it
         self.mode = "play"
+
+    def respawn(self):
+        """Charlie lost a fight: back to the last camp with exactly what he left it with (candy,
+        items, upgrades), fully healed and cured, or to the start of Chapter 1 if he hasn't
+        reached a camp yet. The story so far and the run's stats (knockouts, play time...) are kept."""
+        snapshot = self.screen.copy()
+        stats = dict(self.player.stats)
+        data = save_game.latest
+        if data:
+            self.player, chapter = save_game.restore(data, story_flags=False)
+        else:
+            self.player, chapter = Player(), 0
+        self.player.stats.update(stats)
+        self.player.hp = self.player.max_hp          # a fresh start: full health, no ailments
+        self.player.infected = self.player.burning = 0
+        self.exploration = ExplorationScene(self.screen, self.player, chapter)
+        self.battle = None
+        self.transition = respawn_card(self.screen, self.exploration, bool(data), snapshot)
 
     def to_title(self):
         self.mode = "title"
@@ -138,6 +158,7 @@ class Game:
         in_game = self.mode == "play"
         overlay = {"settings": lambda: SettingsMenu(self.screen, self.apply_setting, in_game),
                    "controls": lambda: ControlsMenu(self.screen),
+                   "cheats": lambda: CheatMenu(self.screen),
                    "pause": lambda: PauseMenu(self.screen)}[kind]()
         overlay.kind = kind
         self.overlays.append(overlay)
@@ -154,7 +175,7 @@ class Game:
             if kind == "settings":
                 settings_store.save()
         elif kind == "pause":
-            if action in ("settings", "controls"):
+            if action in ("settings", "controls", "cheats"):
                 self.open_overlay(action)
             elif action == "quit":
                 self.confirm("quit_run", "Quit to title?", "Anything since your last camp will be lost. "
@@ -179,7 +200,8 @@ class Game:
         elif is_fullscreen_toggle(event):
             self.toggle_fullscreen()
             settings_store.save()
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_m and \
+                not (self.overlays and getattr(self.overlays[-1], "wants_text", False)):
             self.music.toggle_mute()
         elif self.overlays:
             overlay = self.overlays[-1]
@@ -208,7 +230,7 @@ class Game:
                              "reach the first camp.", "Start")
             else:
                 self.new_game()
-        elif action in ("settings", "controls"):
+        elif action in ("settings", "controls", "cheats"):
             self.open_overlay(action)
         elif action == "credits":
             self.start_credits()
@@ -260,7 +282,10 @@ class Game:
         elif self.battle:
             self.battle.update(dt)
             if self.battle.ready_to_exit:
-                self.battle = None
+                if self.battle.outcome == "lost":
+                    self.respawn()
+                else:
+                    self.battle = None
         else:
             self.exploration.update(pygame.key.get_pressed(), dt)
             foe = self.exploration.take_battle_trigger()

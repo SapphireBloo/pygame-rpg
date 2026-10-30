@@ -310,6 +310,19 @@ class CardShop:
             self._wrapped[text] = wrap_text(get_font(15), text, self.CARD_W - 100)
         return self._wrapped[text]
 
+    def _fit_lines(self, entry):
+        """The description, cut to what fits: two lines over a button, note, or stamp, four otherwise.
+        (Anything longer ends in "..." instead of running under the button.)"""
+        lines = self._desc_lines(entry.desc)
+        room = 2 if (entry.stamp or entry.note or entry.button is not None) else 4
+        if len(lines) <= room:
+            return lines
+        font, width = get_font(15), self.CARD_W - 100
+        last = " ".join(lines[room - 1:])
+        while last and font.size(last + "...")[0] > width:
+            last = last[:-1]
+        return lines[:room - 1] + [last.rstrip(" ,.;:") + "..."]
+
     def _draw_card(self, surf, idx, entry, card):
         wobble = self.card_shake.get(idx, 0)
         if wobble:
@@ -342,7 +355,7 @@ class CardShop:
         if entry.tier:
             self._draw_pips(surf, entry.tier, (badge[0], card.bottom - 10), entry.done)
         y = card.y + 33
-        for line in self._desc_lines(entry.desc):
+        for line in self._fit_lines(entry):
             surf.blit(get_font(15).render(line, True, (196, 186, 204)), (x, y))
             y += 17
 

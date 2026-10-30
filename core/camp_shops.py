@@ -3,10 +3,13 @@
   BlacksmithShop   permanent upgrades in tiers that cost more each time (core/upgrades.py)
   CrowShop         BUY items / SELL items and monster trophies (core/items.py)
   BagMenu          see what you're carrying; drink potions outside of battle (I)
+  CrumbMenu        pet Crumb, feed him snacks and Golden Crumbs, and (eventually) fight him
 """
+import random
+
 import pygame
 
-from core.items import ITEMS, ITEMS_BY_KEY, SHOP_STOCK
+from core.items import ITEMS, ITEMS_BY_KEY, SHOP_STOCK, SNACKS
 from core.icons import draw_icon
 from core.shop_modal import CardShop, Entry, NEED_RED
 from core.ui import HEAL_GREEN, WHITE, INK, get_font, outlined_text
@@ -70,8 +73,9 @@ class CrowShop(CardShop):
             return out
         return [Entry(item["key"], item["name"], item["desc"], item["icon"],
                       button=f"+{item['sell']}", button_icon="candy", count=p.count(item["key"]),
-                      note="trophy" if not item.get("buy") else None, note_color=(200, 180, 120))
-                for item in ITEMS if p.count(item["key"])]
+                      note=("snack" if item.get("snack") else "trophy") if not item.get("buy") else None,
+                      note_color=(200, 180, 120))
+                for item in ITEMS if p.count(item["key"]) and item.get("sell")]
 
     def activate(self, entry):
         p, item = self.player, ITEMS_BY_KEY[entry.key]
@@ -98,7 +102,8 @@ class BagMenu(CardShop):
     def subtitle(self):
         p = self.player
         potions = p.count("potion") + p.count("elixir") + p.count("remedy")
-        trophies = sum(p.count(item["key"]) for item in ITEMS if not item.get("buy"))
+        trophies = sum(p.count(item["key"]) for item in ITEMS
+                       if not item.get("buy") and not item.get("snack") and item.get("sell"))
         return f"Potions: {potions}    Bombs: {p.count('bomb')}    Trophies: {trophies}"
 
     def _draw_header(self, surf):
@@ -138,6 +143,9 @@ class BagMenu(CardShop):
             elif item.get("battle"):
                 out.append(Entry(item["key"], item["name"], item["desc"], item["icon"], count=n,
                                  note="use it in battle", note_color=CANT))
+            elif item.get("snack") or item["key"] == "golden_crumb":
+                out.append(Entry(item["key"], item["name"], item["desc"], item["icon"], count=n,
+                                 note="feed it to Crumb at camp", note_color=(255, 210, 140)))
             else:
                 out.append(Entry(item["key"], item["name"], item["desc"], item["icon"], count=n,
                                  note="sell it to the Crow", note_color=(200, 180, 120)))
@@ -153,3 +161,83 @@ class BagMenu(CardShop):
         if result["cured"]:
             bits.append("cured!")
         return True, f"{ITEMS_BY_KEY[entry.key]['name']}: {', '.join(bits) or 'done'}", HEAL_GREEN
+
+
+GOLD_TEXT = (255, 215, 130)
+
+
+class CrumbMenu(CardShop):
+    """Crumb: pet him, feed him snacks (a blessing for the next chapter) or Golden Crumbs,
+    and once he's eaten all four, at the last camp, take him on."""
+    title = "CRUMB"
+    accent = (255, 200, 110)
+    hint = "Click a button   |   Esc to close"
+
+    def __init__(self, screen, player, portrait=None, final_camp=False, on_pet=None, on_fight=None):
+        super().__init__(screen, player, portrait)
+        self.final_camp = final_camp
+        self.on_pet = on_pet          # Crumb hops and hearts pop out
+        self.on_fight = on_fight      # start the secret boss fight
+
+    @property
+    def subtitle(self):
+        p = self.player
+        if p.companion:
+            return "Your partner: every snack blessing, plus Loaf Launch"
+        if p.blessing:
+            return f"Blessed: {ITEMS_BY_KEY[p.blessing]['snack']}"
+        return f"Golden Crumbs eaten: {min(p.crumbs_fed, 4)} / 4"
+
+    def entries(self):
+        p, out = self.player, []
+        out.append(Entry("pet", "Pet Crumb", "He wiggles. You both feel a little better.", "crumb", button="Pet"))
+        for key in SNACKS:
+            if p.count(key) and not p.companion:        # (a partner already gives every blessing)
+                item = ITEMS_BY_KEY[key]
+                note = "replaces your blessing" if p.blessing else None
+                out.append(Entry(key, f"Feed: {item['name']}", item["snack"] + ".", item["icon"], button="Feed",
+                                 count=p.count(key), note=note, note_color=CANT))
+        if p.count("golden_crumb"):
+            out.append(Entry("golden_crumb", "Feed: Golden Crumb", "He's been dreaming about these.", "golden_crumb",
+                             button="Feed", count=p.count("golden_crumb"), note=f"{p.crumbs_fed} / 4 eaten",
+                             note_color=GOLD_TEXT))
+        if p.crumb_beaten:
+            out.append(Entry("partner", "Partner in Crust", "All snack buffs, plus Loaf Launch.", "golden_crust",
+                             stamp="PARTNER", done=True))
+        elif p.crumb_fought:
+            out.append(Entry("calm", "Crust Eternal: undefeated", "He won. He's being very gracious about it. "
+                             "Mostly.", "golden_crust", done=True))
+        elif p.crumbs_fed >= 4:
+            out.append(Entry("quiet", "Crumb is... quiet", "He's staring at the portal. Very, very still. "
+                             "Probably fine.", "golden_crust"))
+        if len(out) == 1:
+            out.append(Entry("hungry", "No snacks", "Monsters drop butter, jam, and sugar, and every boss leaves "
+                             "a snack. Golden Crumbs hide somewhere tricky in every chapter.", "bag",
+                             note="come back with a snack", note_color=CANT))
+        return out
+
+    def activate(self, entry):
+        p = self.player
+        if entry.key == "pet":
+            if self.on_pet:
+                self.on_pet()
+            return True, random.choice(PET_LINES), HEAL_GREEN
+        if entry.key == "fight":
+            self.close()
+            if self.on_fight:
+                self.on_fight()
+            return True, "", WHITE
+        result = p.feed_crumb(entry.key)
+        if result is None:
+            return False, "", WHITE
+        if self.on_pet:
+            self.on_pet()
+        if result == "golden":
+            if p.crumbs_fed >= 4:
+                return True, "Crumb glows... he looks at you differently now.", GOLD_TEXT
+            return True, f"Crumb munches the Golden Crumb! ({p.crumbs_fed}/4)", GOLD_TEXT
+        return True, f"Crumb's blessing: {ITEMS_BY_KEY[entry.key]['snack']}!", HEAL_GREEN
+
+
+PET_LINES = ("Crumb wiggles happily!", "Crumb does a little hop!", "Crumb: \"Again! Again!\"",
+             "Crumb leans into the pets.", "Crumb: \"You smell like candy.\"")

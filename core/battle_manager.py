@@ -6,9 +6,10 @@ Tuning lives in MOVES and the constants below.
 import random
 from dataclasses import dataclass
 
+from core import cheats
 from core.combat_options import JAB, HAYMAKER, CHIN_CHECK
 from core.effects import PERFECT, GOOD, MISS
-from core.items import LOOT, POTION_DROP_CHANCE
+from core.items import LOOT, POTION_DROP_CHANCE, SNACK_DROP_CHANCE, SNACKS
 
 # ring_ms: how long the timing ring takes to close; perfect/good: timing windows (ms either side)
 # Jab numbers are PER HIT: a jab is a combo of up to JAB_CHAIN quick hits.
@@ -56,6 +57,9 @@ THICK_SKIN_SHRUG = 0.3                   # Thick Skin: chance to shake off infec
 INFECTION_DAMAGE = 4         # zombie bites
 BURN_DAMAGE = 6              # Satyrs, Fire Worm, Demon
 FIRST_STRIKE_DAMAGE = 15
+CANDY_SNACK_HEAL = 5         # Gorge heals this much per piece of candy he snatches (and eats)
+LOAF_MULT = 2.4              # Loaf Launch (Crumb, once per fight): this many times Charlie's attack
+LOAF_METER = 15
 FIRST_STRIKE_METER = 20
 
 
@@ -85,6 +89,7 @@ class DefenseResult:
     burned: bool = False        # set on fire (Fire Worm / Demon)
     drained: int = 0            # Chin meter lost to a Hex Storm / Hellfire Cleave
     stolen: int = 0             # HP the Bringer of Death took for himself
+    snatched: int = 0           # candy Gorge grabbed (and ate, healing himself)
     shrugged: str = ""          # Thick Skin shook off an ailment: "infection" or "burn"
     off_balance: bool = False   # Charlie was off balance from a Haymaker
     dazed: int = 0              # Counter Puncher II: Daze stacks after the counter
@@ -151,9 +156,10 @@ class BattleManager:
         whiff = cfg["whiff"]
         if move == HAYMAKER and p.has("heavy_hands"):
             whiff = HAYMAKER_WHIFF_STEADY
-        if timing == MISS and not daze and random.random() < whiff:
+        sure = daze or cheats.one_shot()          # (the one-hit cheat never whiffs or passes through)
+        if timing == MISS and not sure and random.random() < whiff:
             result.whiffed = True
-        elif timing == MISS and not daze and random.random() < e.phase_chance:
+        elif timing == MISS and not sure and random.random() < e.phase_chance:
             result.phased = True
         else:
             damage = p.attack() * cfg["mult"] * TIMING_BONUS[timing]
@@ -192,6 +198,14 @@ class BattleManager:
         if dmg:
             self.enemy.take_damage(dmg)
         return dmg
+
+    def loaf_launch(self):
+        """Crumb flies into the enemy: a big hit, and it's dazed all the way."""
+        e = self.enemy
+        e.daze = e.daze_max
+        e.daze_fresh = True
+        self.gain_meter(LOAF_METER)
+        return e.take_damage(round(self.player.attack() * LOAF_MULT))
 
     def first_strike(self):
         self.gain_meter(FIRST_STRIKE_METER)
@@ -243,6 +257,12 @@ class BattleManager:
                     p.burning = 1
             if result.damage and heavy and e.lifesteal:
                 result.stolen = e.heal(round(result.damage * e.lifesteal))
+            if heavy and e.candy_steal and timing == MISS and p.candy > 0:   # a clean block saves your candy
+                grab = min(p.candy, random.randint(*e.candy_steal))
+                p.candy -= grab
+                e.stolen += grab
+                result.snatched = grab
+                result.stolen = e.heal(grab * CANDY_SNACK_HEAL)
         result.killed = not p.is_alive
         if last:
             self.end_enemy_turn()
@@ -296,12 +316,14 @@ class BattleManager:
             dropped.append(key)
         if not self.enemy.boss and random.random() < POTION_DROP_CHANCE:
             dropped.append("potion")
+        if self.enemy.boss and self.enemy.kind != "bread" or random.random() < SNACK_DROP_CHANCE:
+            dropped.append(random.choice(SNACKS))           # something for Crumb
         for key in dropped:
             self.player.add_item(key)
         return dropped
 
     def award_candy(self):
         """Give the victory candy. Returns the amount actually earned."""
-        earned = self.player.add_candy(self.enemy.candy_drop())
+        earned = self.player.add_candy(self.enemy.candy_drop() + self.enemy.stolen)   # (Gorge gives it all back)
         self.player.last_candy_reward = earned
         return earned

@@ -52,7 +52,7 @@ UPGRADES = [
         {"cost": 16, "desc": "Chin Check hits 25% harder"},
     ]},
     {"key": "thick_skin", "icon": "thick_skin", "name": "Thick Skin", "tiers": [
-        {"cost": 6,  "desc": "30% chance to shrug off infection and burns"},
+        {"cost": 6,  "desc": "30% chance to shrug off ailments"},
         {"cost": 12, "desc": "Infection and burns hurt half as much"},
     ]},
 ]

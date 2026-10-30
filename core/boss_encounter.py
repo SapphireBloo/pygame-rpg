@@ -6,7 +6,7 @@ import pygame
 from core import sfx
 from core.animation import AnimatedSprite
 from core.effects import aura
-from core.enemy_art import enemy_animations, battle_layout
+from core.enemy_art import enemy_animations, battle_layout, draw_spotlight
 from core.ui import draw_speech_bubble, wrap_text, get_font
 
 NOTICE_RANGE = 430
@@ -23,6 +23,12 @@ class BossEncounter:
         self.aura_size = layout["aura"] or (240, 280)
         self.glow = layout["glow"]
         self.intro_anim = layout["intro"] if self.sprite.has(layout["intro"]) else "attack"
+        if self.sprite.has("transform"):       # Gorge waits as an ordinary kid, then bulks up before the fight
+            self.intro_anim = "transform"
+            if self.sprite.has("arrive"):          # ...after stepping into a spotlight
+                self.sprite.play("arrive", restart=True)
+            else:
+                self.sprite.play("transform", restart=True, speed=0)
         self.sounds = layout["sounds"]
         self.shadow_size = layout["shadow"]
         self.height = self.sprite.current.frames[0].get_height()   # for placing the speech bubble
@@ -51,13 +57,17 @@ class BossEncounter:
                 self.state = "casting"
                 self.sprite.play(self.intro_anim, restart=True)
                 self.cast_timer = self.sprite.current.duration
+                if self.intro_anim == "transform":
+                    self.cast_timer += 500            # (a beat to take in the new look)
                 sfx.play(self.sounds.get("attack", "whoosh"))
 
     def update(self, dt, hero_center_x):
         if self.defeated or self.ready_for_battle:
             return
         self.sprite.update(dt)
-        if self.state == "waiting" and abs(hero_center_x - self.x) < NOTICE_RANGE:
+        if self.sprite.name == "arrive" and self.sprite.finished:
+            self.sprite.play("spotlight")
+        if self.state == "waiting" and self.sprite.name != "arrive" and abs(hero_center_x - self.x) < NOTICE_RANGE:
             self.state = "taunting"
             self.facing_right = hero_center_x > self.x
             sfx.play(self.sounds.get("laugh", "enrage"))
@@ -71,8 +81,9 @@ class BossEncounter:
         if self.defeated:
             return
         sx = self.x - camera_offset
-        glow = aura(self.glow, self.aura_size)
-        screen.blit(glow, glow.get_rect(midbottom=(sx, feet_y + 30)))
+        if not draw_spotlight(screen, self.spec["sprite"], self.sprite, sx, feet_y, self.facing_right):
+            glow = aura(self.glow, self.aura_size)
+            screen.blit(glow, glow.get_rect(midbottom=(sx, feet_y + 30)))
         self.sprite.draw(screen, sx, feet_y, self.facing_right)
 
     def draw_bubble(self, screen, camera_offset, feet_y):

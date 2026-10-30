@@ -20,6 +20,7 @@ CREDITS = [
     ("line", "Chin Check Charlie"),
     ("line", "Whisper Jack, skeleton advisor"),
     ("line", "The Blacksmith and the Crow"),
+    ("line", "Crumb, the bread who joined the quest"),
     ("gap", ""),
 
     ("heading", "THE BOSSES"),
@@ -31,6 +32,15 @@ CREDITS = [
     ("small", "Fire Worm asset pack (CC0)"),
     ("line", "Malgorath the Demon"),
     ("small", "Demon Slime (free version)"),
+    ("line", "Gorge, Taker of Worlds"),
+    ("small", "Artist credits coming soon"),
+    ("gap", ""),
+
+    ("heading", "THE VOID"),
+    ("line", "Catto, the Mad Ghost, the Void Mage, and the Abomination"),
+    ("small", "Horror Pixel Art Enemy Pack by AshDeal"),
+    ("line", "The nebula and the stars"),
+    ("small", "Space backgrounds by Screaming Brain Studios (CC0)"),
     ("gap", ""),
 
     ("heading", "THE MONSTERS AND FRIENDS"),
@@ -39,6 +49,10 @@ CREDITS = [
     ("line", "Ghosts, Death Knights, and Satyrs"),
     ("line", "The Blacksmith, the Crow, and the camp forest"),
     ("small", "Free asset packs; artist credits coming soon"),
+    ("line", "Crates, campfires, graves, and the rest of the scenery"),
+    ("small", "Tileset by GandalfHardcore"),
+    ("line", "Boxing gloves, crushers, runes, lightning, sandworms, and arrows"),
+    ("small", "Pixel Trap Pack by Baldur, distributed by Foozle (CC0)"),
     ("gap", ""),
 
     ("heading", "SOUND AND MUSIC"),

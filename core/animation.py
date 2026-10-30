@@ -194,7 +194,7 @@ def _sequences(folder):
 
 DEFAULT_FRAME_MS = {"idle": 90, "walk": 110, "run": 70, "attack": 70, "dead": 80, "jump": 60, "slide": 50,
                     "attack2": 90, "hit": 80}
-NON_LOOPING = {"dead", "jump", "slide", "hit"}
+NON_LOOPING = {"dead", "jump", "slide", "hit", "arrive"}
 
 
 @lru_cache(maxsize=None)

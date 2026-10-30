@@ -6,13 +6,15 @@ Boss art folders (assets/images):
   death/      Mortis, Bringer of Death  - The Cabin
   warlock/    Grimwald the Warlock      - Warlock's Hollow
   fire worm/  Scorchmaw the Fire Worm   - The Bleeding Woods
-  demon/      Malgorath the Demon       - The Graveyard (final boss)
+  demon/      Malgorath the Demon       - The Graveyard
+  bully/      Gorge, Taker of Worlds    - The Void (the true final boss)
 
 Regular monsters (they roam the levels, see core/roaming_enemy.py):
   ghost_idle/     Ghosts        - The Cabin
   death knight/   Death Knights - Warlock's Hollow
   satyr/          Satyrs        - The Bleeding Woods
   male/ female/   Zombies       - The Graveyard
+  void/           Catto, the Mad Ghost, the Mage, the Abomination - The Void
 """
 import json
 from functools import lru_cache
@@ -31,7 +33,12 @@ BOSS_HEIGHTS = {
     "warlock": 340,
     "fireworm": 290,     # long and low: this is about where its head flame reaches
     "demon": 400,        # the final boss gets to be the biggest
+    "bread": 300,        # Crumb, the secret boss (he RISES taller each phase: see CRUMB_PHASES)
+    "gorge": 420,        # Gorge, Taker of Worlds: the true final boss is the biggest of all
 }
+
+# Crumb's three phases: (height on screen, color tint): bread, toast, burnt toast
+CRUMB_PHASES = {1: (300, None), 2: (330, (230, 170, 115)), 3: (360, (135, 88, 68))}
 
 # How a monster sits in a battle.
 #   mid        pixels above the feet where hits land (body center)
@@ -65,6 +72,20 @@ BATTLE_LAYOUT = {
     "satyr": {"mid": 65, "gap": 120, "hit_point": 0.5,
               "sparks": [(200, 60, 90), (255, 150, 60), (90, 30, 50)],
               "sounds": {"attack": "satyr_attack", "heavy": "satyr_beam"}},
+    "bread": {"mid": 150, "gap": 205, "aura": (440, 440), "home_x": 640, "shadow": 2.6, "hit_point": 0.62,
+              "glow": (255, 190, 90), "sparks": [(255, 225, 150), (225, 165, 95), (255, 250, 225)],
+              "intro": "attack", "sounds": {"laugh": "enrage", "attack": "swing_heavy", "heavy": "swing_heavy"}},
+    "gorge": {"mid": 200, "gap": 210, "aura": (470, 560), "home_x": 650, "shadow": 2.6, "hit_point": 0.6,
+              "glow": (255, 90, 160), "sparks": [(255, 120, 180), (255, 220, 120), (120, 60, 140)],
+              "intro": "attack2", "sounds": {"laugh": "enrage", "attack": "swing_heavy", "heavy": "swing_heavy"}},
+    "catto": {"mid": 45, "gap": 110, "hit_point": 0.5, "shadow": 0.8,
+              "sparks": [(255, 40, 90), (40, 30, 50)]},
+    "madghost": {"mid": 95, "gap": 140, "hit_point": 0.7, "shadow": 1.2,
+                 "sparks": [(255, 40, 90), (230, 230, 240)]},
+    "mage": {"mid": 85, "gap": 130, "hit_point": 0.6, "shadow": 1.1,
+             "sparks": [(255, 40, 90), (230, 230, 240)]},
+    "abomination": {"mid": 90, "gap": 150, "hit_point": 0.55, "shadow": 1.8,
+                    "sparks": [(255, 40, 90), (40, 30, 50)]},
     "demon": {"mid": 190, "gap": 215, "aura": (480, 600), "home_x": 650, "shadow": 2.4, "hit_point": 0.62,
               "glow": (255, 80, 30), "sparks": [(255, 120, 30), (255, 210, 80), (120, 20, 10)],
               "intro": "attack",
@@ -102,9 +123,184 @@ KNIGHT_FOLDER = "death knight"               # hi-res 448x448 frames with timing
 KNIGHT_TICK_MS = 42                          # frames are repeated to match their listed durations
 
 
+# ---- The Void ------------------------------------------------------------
+# The four Void creatures (AshDeal's horror pack): (sheet, frame w, h, rows as (name, frames)),
+# and how tall each stands on screen. They're near-black, so they get a pale outline to read
+# against the dark nebula.
+VOID_SHEETS = {
+    "catto": ("void/Catto/Cat monster-Sheet Separated tags.png", 48, 32,
+              (("stare", 1), ("stand", 2), ("walk", 4), ("turn", 5), ("sit", 2), ("idle", 4), ("attack", 6),
+               ("hit", 2), ("dead", 9))),
+    "madghost": ("void/Mad Ghost/Mad Ghost-Sheet Separated tags.png", 64, 64,
+                 (("idle", 4), ("walk", 4), ("draw", 5), ("slash", 3), ("sheathe", 4), ("hit", 2), ("dead", 9))),
+    "mage": ("void/Mage/Mage-Sheet Separated Tags.png", 112, 48,
+             (("idle", 4), ("walk", 4), ("attack", 10), ("hit", 2), ("dead", 9))),
+    "abomination": ("void/Abomination/Abomination-Sheet Separated Tags.png", 112, 48,
+                    (("idle", 4), ("walk", 4), ("attack", 9), ("hit", 2), ("dead", 9))),
+}
+VOID_HEIGHTS = {"catto": 72, "madghost": 190, "mage": 170, "abomination": 175}
+VOID_SPEEDS = (("idle", 150), ("walk", 120), ("attack", 85), ("hit", 100), ("dead", 95))
+VOID_RIM = (205, 175, 255)        # the pale outline
+
+# Gorge: 40x40 walk/transform frames and 50x50 punch frames, lined up on one 50x50 canvas.
+GORGE_WALK = "bully/RageWalk.png"
+GORGE_TRANSFORM = "bully/RageTransformation.png"
+GORGE_HIT = "bully/RageHitRightFront.png"
+GORGE_SPEEDS = (("idle", 160), ("walk", 120), ("attack", 80), ("attack2", 90), ("hit", 100),
+                ("transform", 105), ("dead", 95), ("arrive", 130), ("spotlight", 160))
+# His spotlight: the kid steps into a pool of light (entry), and when he's beaten he shrinks back into it,
+# slumps, and is squeezed down to nothing (death). The sheets' FIRED / NEW EMPLOYEE frames aren't used.
+GORGE_SPOT = "bully/rageDeathOutro.png"          # 7 x 7 grid of 40x40 frames
+GORGE_SLUMP = "bully/rageDeathIntro.png"         # 3 x 3 grid; frame 0 is him slumped in the light
+SPOT_ARRIVE = range(24, 29)      # a sliver of light opens into a spotlight with the kid standing in it
+SPOT_WAIT = range(28, 33)        # standing in the light
+SPOT_FADE = range(6, 21)         # slumped in the light, squeezed down to a sliver, gone
+# The spotlight art sits on solid black with a gray cone (a dim yellow one when he's beaten). The black
+# goes, and the cone and the pool on the floor become see-through light drawn behind him.
+SPOT_LIGHT = {(64, 64, 64): (215, 225, 255, 55), (122, 122, 122): (215, 225, 255, 105),
+              (68, 63, 46): (255, 210, 140, 50), (124, 109, 55): (255, 210, 140, 95)}
+
+
+def _rim(frame, color):
+    """A 1-pixel outline (at the art's own scale) in a light color, so dark art stands out."""
+    silhouette = frame.copy()
+    silhouette.fill((*color, 255), special_flags=pygame.BLEND_RGBA_MIN)
+    silhouette.fill((*color, 0), special_flags=pygame.BLEND_RGBA_MAX)
+    out = pygame.Surface(frame.get_size(), pygame.SRCALPHA)
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        out.blit(silhouette, (dx, dy))
+    out.blit(frame, (0, 0))
+    return out
+
+
+@lru_cache(maxsize=None)
+def _void_animations(sprite):
+    sheet_file, fw, fh, rows = VOID_SHEETS[sprite]
+    sheet = pygame.image.load(IMAGES_DIR / sheet_file).convert_alpha()
+    raw = {}
+    for r, (name, n) in enumerate(rows):
+        raw[name] = [_rim(sheet.subsurface((c * fw, r * fh, fw, fh)).copy(), VOID_RIM) for c in range(n)]
+    if sprite == "madghost":                   # draws its blades, slashes, sheathes them
+        raw["attack"] = raw.pop("draw") + raw.pop("slash") + raw.pop("sheathe")
+    return load_pixel_character(raw, VOID_HEIGHTS[sprite], VOID_SPEEDS, 0)
+
+
+def _gorge_raw():
+    return _gorge_split()[0]
+
+
+@lru_cache(maxsize=1)
+def _gorge_split():
+    """Gorge's frames ({name: [frames]}), and the spotlight that goes behind some of them
+    ({name: [frames]}, one light frame per character frame)."""
+    canvas = 50
+
+    def cells(path, size, count):
+        sheet = pygame.image.load(IMAGES_DIR / path).convert_alpha()
+        cols = sheet.get_width() // size
+        out = []
+        for i in range(count):
+            frame = sheet.subsurface(((i % cols) * size, (i // cols) * size, size, size))
+            pad = pygame.Surface((canvas, canvas), pygame.SRCALPHA)
+            pad.blit(frame, ((canvas - size) // 2, (canvas - size) // 2))   # (feet land on the same spot)
+            out.append(pad)
+        return out
+
+    def spot(path, i, cols, drop):
+        """One spotlight frame split into (kid, light), moved down `drop` px so his feet match the other sheets."""
+        sheet = pygame.image.load(IMAGES_DIR / path).convert_alpha()
+        x0, y0 = (i % cols) * 40, (i // cols) * 40
+        kid = pygame.Surface((canvas, canvas), pygame.SRCALPHA)
+        light = pygame.Surface((canvas, canvas), pygame.SRCALPHA)
+        off = (canvas - 40) // 2
+        for y in range(40):
+            for x in range(40):
+                c = sheet.get_at((x0 + x, y0 + y))
+                rgb = (c.r, c.g, c.b)
+                if c.a == 0 or rgb == (0, 0, 0):
+                    continue
+                if rgb in SPOT_LIGHT:
+                    light.set_at((x + off, y + off + drop), SPOT_LIGHT[rgb])
+                else:
+                    kid.set_at((x + off, y + off + drop), c)
+        return kid, _beam(light)
+
+    def faded(light, k):
+        out = light.copy()
+        out.fill((255, 255, 255, int(255 * k)), special_flags=pygame.BLEND_RGBA_MULT)
+        return out
+
+    walk = cells(GORGE_WALK, 40, 20)
+    grow = cells(GORGE_TRANSFORM, 40, 17)
+    hits = cells(GORGE_HIT, 50, 11)
+    arrive = [spot(GORGE_SPOT, i, 7, 3) for i in SPOT_ARRIVE]
+    wait = [spot(GORGE_SPOT, i, 7, 3) for i in SPOT_WAIT]
+    slump = spot(GORGE_SLUMP, 0, 3, 1)
+    fade = [spot(GORGE_SPOT, i, 7, 1) for i in SPOT_FADE]
+    cone = wait[0][1]
+    nothing = pygame.Surface((canvas, canvas), pygame.SRCALPHA)
+    # dead: he shrinks back into the kid as the light comes up, stands there a moment, slumps, and fades out
+    shrink = list(reversed(grow))
+    dead = shrink + [wait[0][0]] * 3 + [slump[0]] * 4 + [f[0] for f in fade]
+    dead_light = ([nothing] * (len(shrink) - 5) + [faded(cone, k / 5) for k in range(1, 6)] + [cone] * 3
+                  + [slump[1]] * 4 + [f[1] for f in fade])
+    frames = {"idle": walk[0:4], "walk": walk[4:8], "attack": hits[0:6], "attack2": hits[6:11],
+              "hit": [walk[0], walk[2]], "transform": grow, "dead": dead,
+              "arrive": [f[0] for f in arrive], "spotlight": [f[0] for f in wait]}
+    lights = {"idle": walk[0:1],               # (only there so the light lines up with him: never drawn)
+              "arrive": [f[1] for f in arrive], "spotlight": [f[1] for f in wait],
+              "transform": [faded(cone, 1 - k / 5) for k in range(5)] + [nothing] * (len(grow) - 5),
+              "dead": dead_light}
+    return frames, lights
+
+
+def _beam(light):
+    """Tidy a spotlight layer: fill the art's dithered (checkerboard) edges in at half strength, so they
+    read as a soft edge over the starfield instead of a grid, and carry the beam up off the top of the frame."""
+    w, h = light.get_size()
+    src = light.copy()
+    for y in range(h):
+        for x in range(w):
+            if src.get_at((x, y)).a:
+                continue
+            near = [src.get_at((nx, ny)) for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+                    if 0 <= nx < w and 0 <= ny < h and src.get_at((nx, ny)).a]
+            if len(near) >= 3:
+                c = near[0]
+                light.set_at((x, y), (c.r, c.g, c.b, c.a // 2))
+    for top in range(h):                        # the beam's first solid row in the art (no gaps across it)...
+        lit = [x for x in range(w) if src.get_at((x, top)).a]
+        if len(lit) >= 3 and len(lit) == lit[-1] - lit[0] + 1:
+            break
+    else:
+        return light
+    for y in range(top):                        # ...carried straight up: the light comes from somewhere above
+        for x in lit:
+            light.set_at((x, y), src.get_at((x, top)))
+    return light
+
+
+@lru_cache(maxsize=1)
+def _gorge_lights():
+    return load_pixel_character(_gorge_split()[1], BOSS_HEIGHTS["gorge"], GORGE_SPEEDS, 0)
+
+
+def draw_spotlight(screen, sprite_name, sprite, feet_x, feet_y, facing_right):
+    """The light behind a boss (only Gorge has one), matched to whatever he's doing.
+    Returns True if there was any light to draw."""
+    if sprite_name != "gorge":
+        return False
+    anim = _gorge_lights().get(sprite.name)
+    if anim is None or sprite.name == "idle":
+        return False
+    surface, (ax, ay) = anim.frame(min(sprite.index, len(anim) - 1), facing_right)
+    screen.blit(surface, (round(feet_x - ax), round(feet_y - sprite.lift - ay)))
+    return True
+
+
 def boss_scale(sprite):
     """Pixel-art scale factor a boss is drawn at (effects use the same)."""
-    raw_idle_height = {"death": 54, "warlock": 95, "fireworm": 41, "demon": 105}[sprite]
+    raw_idle_height = {"death": 54, "warlock": 95, "fireworm": 41, "demon": 105, "bread": 27, "gorge": 30}[sprite]
     return BOSS_HEIGHTS[sprite] / raw_idle_height
 
 
@@ -121,7 +317,43 @@ def _boss_animations(sprite):
     if sprite == "demon":
         raw = {name: slice_grid(DEMON_SHEET, 288, 160, start, n) for name, start, n in DEMON_FRAMES}
         return load_pixel_character(raw, h, DEMON_SPEEDS, ink, faces="left")
+    if sprite == "bread":
+        return crumb_boss_animations(1)
+    if sprite == "gorge":
+        return load_pixel_character(_gorge_raw(), h, GORGE_SPEEDS, ink)
     raise KeyError(sprite)
+
+
+@lru_cache(maxsize=3)
+def crumb_boss_animations(phase):
+    """Crumb as a towering boss: bigger and toastier each phase. His attack is a jump and a
+    body slam; when he's beaten he shrinks back down to snack size."""
+    from core.camp import bread_frames
+    height, tint = CRUMB_PHASES[phase]
+    raw = bread_frames()
+    idle0 = raw["idle"][0]
+    raw["attack"] = [raw["jump"][0], raw["jump"][0], raw["jump"][2], raw["jump"][2], idle0]
+    raw["dead"] = [_shrunk(idle0, k) for k in (1.0, 0.82, 0.64, 0.48, 0.36, 0.28, 0.28)]
+    if tint:
+        raw = {name: [_tint(f, tint) for f in frames] for name, frames in raw.items()}
+    speeds = (("idle", 170), ("walk", 110), ("jump", 120), ("attack", 95), ("dead", 140))
+    return load_pixel_character(raw, height, speeds, CHARACTER_INK)
+
+
+def _shrunk(frame, k):
+    """The frame scaled down by k, standing on the same spot (for shrinking back to normal)."""
+    box = frame.get_bounding_rect()
+    art = frame.subsurface(box)
+    small = pygame.transform.scale(art, (max(1, round(box.width * k)), max(1, round(box.height * k))))
+    out = pygame.Surface(frame.get_size(), pygame.SRCALPHA)
+    out.blit(small, small.get_rect(midbottom=(box.centerx, box.bottom)))
+    return out
+
+
+def _tint(frame, tint):
+    out = frame.copy()
+    out.fill(tint, special_flags=pygame.BLEND_RGB_MULT)
+    return out
 
 
 @lru_cache(maxsize=4)
@@ -213,6 +445,8 @@ def enemy_animations(sprite, tint=None):
         return _satyr_animations()
     if sprite == "knight":
         return _knight_animations()
+    if sprite in VOID_SHEETS:
+        return _void_animations(sprite)
     return load_gameart2d_character(sprite, ZOMBIE_HEIGHT, ink=CHARACTER_INK)   # male / female zombies
 
 

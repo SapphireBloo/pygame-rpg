@@ -207,13 +207,15 @@ class TimingRing:
     drift      (dx, dy) px the whole ring slides by while it closes (an arc, eased)
     hold       feint: ms the ring freezes about two-thirds of the way in. The real
                sweet spot comes that much later, so pressing on rhythm is early.
+    forgive_early  a feint's first too-early press (before the stall's over) is ignored,
+               so pressing on rhythm doesn't cost the block (a second early press counts).
     The first press is the only one that counts (no mashing).
     """
 
     HOLD_AT = 0.68               # a feint stalls once the ring is this far closed
 
     def __init__(self, center, duration, perfect=70, good=160, color=(255, 215, 0), label="SPACE",
-                 drift=(0, 0), hold=0):
+                 drift=(0, 0), hold=0, forgive_early=False):
         self.start_center = center
         self.drift = drift
         self.closing_ms = duration                # visual closing time
@@ -226,6 +228,8 @@ class TimingRing:
         self.label = label
         self.elapsed = 0
         self.result = None           # set on first press: PERFECT / GOOD / MISS
+        self.forgive_early = forgive_early and bool(hold)
+        self.forgiven = False        # (the one free early press has been used)
         self.flash = 0
         self.font = get_font(14, bold=True)
 
@@ -253,6 +257,11 @@ class TimingRing:
         if self.result is not None:
             return
         error = abs(self.elapsed - self.duration)
+        early = self.elapsed < self.hold_at + self.hold and error > self.good
+        if early and self.forgive_early and not self.forgiven:
+            self.forgiven = True          # the feint fooled you once: no harm done, press again
+            self.flash = 120
+            return
         self.result = PERFECT if error <= self.perfect else GOOD if error <= self.good else MISS
         self.flash = 200
 

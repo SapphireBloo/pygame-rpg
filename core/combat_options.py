@@ -8,6 +8,7 @@ from core.items import BATTLE_ITEMS
 from core.ui import get_font, outlined_text, blit_centered, GOLD, WHITE, INK
 
 JAB, HAYMAKER, CHIN_CHECK, ITEMS = "Jab", "Haymaker", "Chin Check", "Items"
+LOAF = "Loaf Launch"           # Crumb's move, once he's joined Charlie: once per fight
 # Blocking isn't a menu choice: press SPACE as an enemy hit lands to block (or parry).
 
 HINTS = {
@@ -15,6 +16,7 @@ HINTS = {
     HAYMAKER: "Huge hit. Never whiffs on a dazed enemy, but leaves you off balance.",
     CHIN_CHECK: "Finisher! Spends a full Chin meter. Time it for a massive uppercut.",
     ITEMS: "Open your bag: Gourd-Aid, remedies, bombs, Chin Juice. Using one takes your turn.",
+    LOAF: "Crumb launches himself at the enemy: a huge hit that dazes it all the way. Once per fight.",
 }
 
 # Each move card: icon (core/icons.py), the little tag under its name, and its color
@@ -23,11 +25,12 @@ CARDS = {
     HAYMAKER: ("heavy_hands", "Big hit, risky", (210, 70, 50)),
     CHIN_CHECK: ("iron_chin", "Finisher", (255, 150, 40)),
     ITEMS: ("bag", "Potions + bombs", (110, 170, 90)),
+    LOAF: ("crumb", "Once per fight", (235, 175, 80)),
 }
 CARD_W, CARD_H, CARD_GAP = 200, 52, 14
 CARD_BOTTOM = 596          # cards sit along the bottom edge of the battle screen
 LIFT = 7                   # how far the selected card rises
-NUMBER_KEYS = (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4)
+NUMBER_KEYS = (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5)
 
 
 class CombatOptions:
@@ -37,6 +40,9 @@ class CombatOptions:
         self.screen = screen
         self.player = player
         self.options = [JAB, HAYMAKER, CHIN_CHECK, ITEMS]
+        if player.companion:                     # Crumb's fighting with Charlie
+            self.options.insert(3, LOAF)
+        self.loaf_used = False                   # (the battle sets this once Crumb's flown)
         self.selected_index = 0
         self.name_font = get_font(18, bold=True)
         self.tag_font = get_font(12)
@@ -51,16 +57,25 @@ class CombatOptions:
             return p.chin_ready
         if option == ITEMS:
             return any(p.item_useful(item["key"]) for item in BATTLE_ITEMS)
+        if option == LOAF:
+            return not self.loaf_used
         return True
 
     def _usable_items(self):
         return sum(self.player.count(item["key"]) for item in BATTLE_ITEMS if self.player.item_useful(item["key"]))
 
     # ---- layout --------------------------------------------------------
+    @property
+    def card_w(self):
+        """Cards shrink a little when there are five of them."""
+        n = len(self.options)
+        return min(CARD_W, (self.screen.get_width() - 24 - (n - 1) * CARD_GAP) // n)
+
     def card_rect(self, i):
-        total = len(self.options) * CARD_W + (len(self.options) - 1) * CARD_GAP
-        x = (self.screen.get_width() - total) // 2 + i * (CARD_W + CARD_GAP)
-        return pygame.Rect(x, CARD_BOTTOM - CARD_H, CARD_W, CARD_H)
+        w = self.card_w
+        total = len(self.options) * w + (len(self.options) - 1) * CARD_GAP
+        x = (self.screen.get_width() - total) // 2 + i * (w + CARD_GAP)
+        return pygame.Rect(x, CARD_BOTTOM - CARD_H, w, CARD_H)
 
     def _labels(self):
         """(option, None, rect) for each card (kept for older callers)."""
@@ -90,7 +105,7 @@ class CombatOptions:
             return self.options[i]
         if event.type != pygame.KEYDOWN:
             return None
-        if event.key in NUMBER_KEYS:                 # 1-4 picks a move straight away
+        if event.key in NUMBER_KEYS[:len(self.options)]:   # 1-4 (or 5) picks a move straight away
             self.selected_index = NUMBER_KEYS.index(event.key)
             sfx.play("ui_select", 0.7)
             return self.options[self.selected_index]
@@ -108,6 +123,8 @@ class CombatOptions:
     def hint_text(self, option):
         if option == CHIN_CHECK and not self.player.chin_ready:
             return f"Fill the Chin meter first ({self.player.chin_meter}/{self.player.CHIN_METER_MAX}). Clean hits and parries fill it."
+        if option == LOAF and self.loaf_used:
+            return "Crumb's catching his breath. One Loaf Launch per fight."
         if option == ITEMS and not self.available(ITEMS):
             return "Nothing in your bag would help right now. The Crow sells potions at camp."
         return HINTS[option]
@@ -192,6 +209,8 @@ class CombatOptions:
             tag = "READY!"
         elif option == ITEMS and not ready:
             tag = "Nothing useful"
+        elif option == LOAF and not ready:
+            tag = "Used"
         tag_color = (255, 210, 120) if (chin_full or (selected and ready)) else (165, 155, 175)
         s.blit(self.tag_font.render(tag, True, tag_color), (rect.x + 61, rect.y + 31))
 

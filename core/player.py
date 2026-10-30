@@ -2,9 +2,13 @@ from core.items import ITEMS_BY_KEY, STARTING_ITEMS
 from core.settings import GROUND_Y
 from core.upgrades import UPGRADES
 
+SUGAR_PUNCH = 3
+
 
 class Player:
     BASE_MAX_HP = 100
+    BUTTER_HP = 15         # Crumb's blessings, for the chapter after you feed him (see feed_crumb)
+    JAM_METER = 30
     # What each Blacksmith tier is worth (see core/upgrades.py for the costs)
     MAX_HP_PER_TIER = 20       # Tough Hide
     POTION_BOOST = 10          # extra HP per healing potion, per Potion Boost tier
@@ -29,6 +33,14 @@ class Player:
 
         self.upgrades = {u["key"]: 0 for u in UPGRADES}   # upgrade key -> tier owned (0 = none)
         self.used_resurrect = False   # Second Wind: once per game (tier II: refreshed every chapter)
+
+        # Crumb, the bread at camp
+        self.crumbs_found = []        # chapters whose hidden Golden Crumb Charlie picked up
+        self.crumbs_fed = 0           # Golden Crumbs Crumb has eaten (4 = he's ready for a fight)
+        self.crumb_beaten = False     # beat the secret boss: now he's Charlie's companion (see `companion`)
+        self.crumb_angry = False      # fed all four crumbs, then tried to leave camp: he's FURIOUS
+        self.crumb_fought = False     # the secret fight is a one-shot: True once it's been tried
+        self.blessing = None          # snack Crumb ate at the last camp: helps until the next camp
 
         # For the end-of-run summary
         self.stats = {"losses": 0, "perfects": 0, "best_combo": 0, "parries": 0, "candy_earned": 0, "play_ms": 0}
@@ -62,7 +74,27 @@ class Player:
 
     # ---- combat --------------------------------------------------------
     def attack(self):
-        return 10 + self.level * 2
+        sugar = self.blessing == "sugar" or self.companion
+        return 10 + self.level * 2 + (SUGAR_PUNCH if sugar else 0)
+
+    @property
+    def companion(self):
+        """Crumb travels with Charlie (after Charlie beat him): every snack blessing, for good,
+        and the Loaf Launch move in battle."""
+        return self.crumb_beaten
+
+    @property
+    def jam_start(self):
+        return self.blessing == "jam" or self.companion
+
+    def join_crumb(self):
+        """Charlie beat Crumb, the Crust Eternal, and Crumb's coming along: his butter blessing
+        becomes permanent (the sugar and jam ones follow from `companion`)."""
+        self.clear_blessing()
+        if not self.crumb_beaten:
+            self.crumb_beaten = True
+            self.max_hp += self.BUTTER_HP
+        self.hp = self.max_hp
 
     def take_damage(self, amount):
         """Apply a hit. Returns the damage taken. (Blocking is all timing: see battle_manager.)"""
@@ -165,12 +197,37 @@ class Player:
             self.hp += self.MAX_HP_PER_TIER
         return True
 
+    # ---- Crumb ---------------------------------------------------------
+    def feed_crumb(self, key):
+        """Feed Crumb a snack (a blessing for the next chapter) or a Golden Crumb.
+        Returns what happened: "golden", "blessed", or None if Charlie doesn't have one."""
+        if not self.remove_item(key):
+            return None
+        if key == "golden_crumb":
+            self.crumbs_fed += 1
+            return "golden"
+        self.clear_blessing()                 # one blessing at a time: the new snack replaces it
+        self.blessing = key
+        if key == "butter":
+            self.max_hp += self.BUTTER_HP
+            self.hp += self.BUTTER_HP
+        return "blessed"
+
+    def clear_blessing(self):
+        """Reached the next camp: the blessing wears off."""
+        if self.blessing == "butter":
+            self.max_hp -= self.BUTTER_HP
+            self.hp = max(1, min(self.hp, self.max_hp))
+        self.blessing = None
+
     # ---- saving --------------------------------------------------------
-    SAVED = ("max_hp", "hp", "candy", "battles_won", "used_resurrect", "infected", "burning")
+    SAVED = ("max_hp", "hp", "candy", "battles_won", "used_resurrect", "infected", "burning",
+             "crumbs_fed", "crumb_beaten", "crumb_angry", "crumb_fought", "blessing")
 
     def to_save(self):
         data = {name: getattr(self, name) for name in self.SAVED}
-        data.update(inventory=dict(self.inventory), upgrades=dict(self.upgrades), stats=dict(self.stats))
+        data.update(inventory=dict(self.inventory), upgrades=dict(self.upgrades), stats=dict(self.stats),
+                    crumbs_found=list(self.crumbs_found))
         return data
 
     @classmethod
@@ -184,5 +241,6 @@ class Player:
             if key in p.upgrades:                  # skip upgrades that no longer exist
                 p.upgrades[key] = int(level)
         p.stats.update({k: v for k, v in data.get("stats", {}).items() if k in p.stats})
+        p.crumbs_found = [int(c) for c in data.get("crumbs_found", [])]
         p.hp = max(1, min(p.hp, p.max_hp))
         return p

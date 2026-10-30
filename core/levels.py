@@ -17,6 +17,9 @@ Each level:
               "sprite" picks the art (see core/enemy_art.py, where boss sizes live)
               and "kind" picks how he fights (see core/enemy.py).
   arrival     Whisper Jack's lines when you arrive (empty list = he stays quiet)
+
+Where the monsters stand, the boss's spot, the obstacles, and the hidden Golden Crumbs
+are in core/level_layouts.py.
 """
 
 LEVELS = [
@@ -130,8 +133,81 @@ LEVELS = [
     },
 ]
 
+VOID_BACKGROUND = "final/Purple Nebula/Purple_Nebula_04-1024x1024.png"
+
+LEVELS.append({
+    # The final chapter: no platforms or traps. Charlie walks slowly through the Void while
+    # Whisper Jack explains it (he doesn't stop Charlie). After each speech one of the Void's
+    # creatures appears, in order, and then Gorge waits at the end. See scenes/void_walk.py.
+    "name": "The Void",
+    "subtitle": "Where all the candy goes",
+    "background": VOID_BACKGROUND,
+    "accent": (200, 90, 255),
+    "ghost_tint": None,
+    "final": True,          # after Gorge: the ending and credits (no camp)
+    "void": True,           # the slow walk, narrated
+    "monsters": [
+        {"sprite": "catto", "kind": "catto", "name": "Catto", "hp": 120, "damage": (11, 20), "candy": (5, 8)},
+        {"sprite": "madghost", "kind": "madghost", "name": "The Mad Ghost", "hp": 135, "damage": (12, 21),
+         "candy": (5, 8)},
+        {"sprite": "mage", "kind": "mage", "name": "The Void Mage", "hp": 145, "damage": (12, 22), "candy": (6, 9)},
+        {"sprite": "abomination", "kind": "abomination", "name": "The Abomination", "hp": 175, "damage": (13, 23),
+         "candy": (6, 10)},
+    ],
+    "boss": {
+        "sprite": "gorge", "kind": "bully", "boss": True,
+        "name": "Gorge, Taker of Worlds", "hp": 320, "damage": (13, 21), "candy": (25, 30),
+        "lunge": 40,
+        "taunt": [
+            "Well, well. If it isn't Pumpkin-Head.",
+            "Every Halloween you trick-or-treat. Every Halloween I TAKE it. That's how it works.",
+            "Your candy? MINE. Your world? A SNACK. Hand over the bag, kid.",
+        ],
+        "defeat_quote": "Gorge shrinks back down... just a kid with an empty bag. All that candy's going home.",
+    },
+    "arrival": [],
+    # Whisper Jack, as Charlie walks. One of the Void's creatures appears after each speech
+    # (Catto, the Mad Ghost, the Mage, the Abomination), and Gorge after the last.
+    "speeches": [
+        ["...Oh. Oh, no. So this is the Void.",
+         "Kid, I've haunted a lot of places. Nothing like this. Nothing.",
+         "No up. No down. Just lights that aren't stars... and I think they're looking at us.",
+         "This is where all the lost candy goes. Every wrapper. Every last piece. Forever.",
+         "Don't stop walking. Whatever happens, keep moving. ...Is that a cat?"],
+        ["That was NOT a kitty. Out here, things wear whatever face fools you longest.",
+         "Can you feel that? The whole place is... breathing. Slow and deep, like it's asleep.",
+         "Let's not wake it up.",
+         "Wait. Hear that? Something out there is... sharpening."],
+        ["A ghost with knives. And I thought I was scary.",
+         "Look up, Charlie. Every one of those lights is somebody's stolen candy. Millions of them.",
+         "It's beautiful. It's horrible. I can't stop looking at it.",
+         "Bullies made this. Every time one takes something that isn't theirs, the hole gets bigger.",
+         "...Somebody's casting. Get ready!"],
+        ["I'm a skeleton, kid, and my bones are rattling. Real talk.",
+         "The one at the end of this? He's the one who took your candy. Every single Halloween.",
+         "He got so big on it, he started swallowing whole worlds.",
+         "And something's crawling out of his leftovers right now. Oh, that's horrible..."],
+        ["That was his last guard. He's right up ahead. I can feel him from here.",
+         "Gorge. The Taker of Worlds. Eater of all candy.",
+         "I've never been this scared in my whole afterlife. But he's only as big as you let him be.",
+         "Chin up, Charlie. I'm right here."],
+    ],
+    "farewell": ["You did it, kid. Look at him... just a mean little kid with an empty bag.",
+                 "The lights are going out. No... they're going HOME. All that candy's going home.",
+                 "Come on, Charlie. Let's go home too. Before this place remembers we're here."],
+})
+
 # Shown after the last level's exit
 ENDING = {
     "title": "To Be Continued...",
     "subtitle": "Thanks for playing Chin Check Charlie",
+}
+
+
+# The secret boss: Crumb, once he's eaten all four Golden Crumbs, at the last camp.
+# He fights at camp ("arena"), as hard as a Chapter 4 boss and then some ("chapter").
+SECRET_BOSS = {
+    "sprite": "bread", "kind": "bread", "name": "Crumb, the Crust Eternal", "boss": True,
+    "hp": 520, "damage": (12, 20), "candy": (40, 50), "lunge": 150, "arena": "camp", "chapter": 3,
+    "defeat_quote": "Crumb shrinks back to snack size. \"Best. Fight. EVER. Hug?\"",
 }

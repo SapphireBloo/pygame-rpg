@@ -2,7 +2,8 @@
 
   SettingsMenu   music and sound volume, fullscreen, difficulty (saved to disk)
   ControlsMenu   every key, in one place
-  PauseMenu      Esc / P in game: Resume, Settings, Controls, Quit to Title
+  PauseMenu      Esc / P in game: Resume, Settings, Controls, Cheats, Quit to Title
+  CheatMenu      type in a cheat code (for testing; see core/cheats.py)
 
 Each one's handle_event returns an action string (or None), and the caller
 (main.py) decides what to do with it.
@@ -11,7 +12,7 @@ import math
 
 import pygame
 
-from core import sfx
+from core import cheats, sfx
 from core.difficulty import DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_BLURBS
 from core.menu_ui import ButtonMenu, BACK, CONFIRM, NAV_UP, NAV_DOWN, PUMPKIN, BUTTON_FILL, hint_line
 from core.options import options
@@ -220,14 +221,15 @@ CONTROLS = (
     ("EXPLORING", (
         ("A / D  or  Left / Right", "Walk"),
         ("Shift", "Run"),
-        ("Space  or  Up", "Jump"),
-        ("S  or  Down", "Slide (into a monster for a first strike)"),
-        ("E", "Talk to the Blacksmith or the Crow"),
+        ("Space  or  Up", "Jump (again in the air: double jump)"),
+        ("S  or  Down", "Slide (into a monster for a First Strike)"),
+        ("Land on a monster", "First Strike"),
+        ("E", "Search things, talk at camp, or step into a portal"),
         ("I", "Open your bag"),
         ("H", "Drink a Gourd-Aid (a Remedy if you're sick)"),
     )),
     ("FIGHTING", (
-        ("Arrows, 1-4, or mouse", "Pick a move"),
+        ("Arrows, 1-5, or mouse", "Pick a move"),
         ("Space, Enter, or click", "Throw it, and hit the timing rings"),
         ("Space as a hit lands", "Block (perfect timing = PARRY)"),
         ("Esc", "Back out of the Items menu"),
@@ -278,10 +280,11 @@ class ControlsMenu:
 class PauseMenu:
     def __init__(self, screen):
         self.screen = screen
-        self.rect = pygame.Rect(0, 0, 340, 360)
+        self.rect = pygame.Rect(0, 0, 340, 416)
         self.rect.center = (screen.get_width() // 2, screen.get_height() // 2)
         self.menu = ButtonMenu([("resume", "Resume"), ("settings", "Settings"), ("controls", "Controls"),
-                                ("quit", "Quit to Title")], self.rect.centerx, self.rect.y + 92, width=220)
+                                ("cheats", "Cheats"), ("quit", "Quit to Title")], self.rect.centerx,
+                               self.rect.y + 92, width=220)
         self.time = 0
 
     def handle_event(self, event):
@@ -303,3 +306,95 @@ class PauseMenu:
         s.blit(title, title.get_rect(midtop=(self.rect.centerx, self.rect.y + 22 + bob)))
         self.menu.draw(s)
         hint_line(s, "Esc to resume", self.rect.bottom + 22)
+
+
+class CheatMenu:
+    """Type a cheat code and press Enter. A real code flips that cheat on (or back off)."""
+    MAX_LEN = 20
+    wants_text = True              # (so typing letters here doesn't also trigger M to mute, etc.)
+
+    def __init__(self, screen):
+        self.screen = screen
+        self.rect = pygame.Rect(0, 0, 480, 330)
+        self.rect.center = (screen.get_width() // 2, screen.get_height() // 2)
+        self.field = pygame.Rect(0, 0, 340, 46)
+        self.field.midtop = (self.rect.centerx, self.rect.y + 92)
+        self.back = ButtonMenu([("back", "Back")], self.rect.centerx, self.rect.bottom - 64, width=170, height=42)
+        self.text = ""
+        self.message = None        # (text, color, ms left)
+        self.shake = 0
+        self.time = 0
+
+    def handle_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                sfx.play("ui_move", 0.5)
+                return "back"
+            if event.key == pygame.K_BACKSPACE:
+                self.text = self.text[:-1]
+                return None
+            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self._submit()
+                return None
+            ch = getattr(event, "unicode", "")
+            if ch and ch.isalnum() and ch.isascii() and len(self.text) < self.MAX_LEN:
+                self.text += ch.lower()
+                sfx.play("ui_move", 0.3)
+            return None
+        if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            return self.back.handle_event(event)
+        return None
+
+    def _submit(self):
+        if not self.text:
+            return
+        result = cheats.enter(self.text)
+        self.text = ""
+        if result is None:
+            self.message = ("Nothing happens...", (255, 120, 100), 2200)
+            self.shake = 300
+            sfx.play("ui_error", 0.7)
+        else:
+            label, on = result
+            self.message = (f"{label}: {'ON' if on else 'OFF'}", (130, 230, 120) if on else (230, 200, 160), 3000)
+            sfx.play("ui_select", 0.8)
+
+    def update(self, dt):
+        self.time += dt
+        self.shake = max(0, self.shake - dt)
+        if self.message:
+            text, color, left = self.message
+            self.message = (text, color, left - dt) if left > dt else None
+        self.back.update(dt)
+
+    def draw(self):
+        s = self.screen
+        dim_screen(s, 165)
+        draw_spooky_panel(s, self.rect, PUMPKIN)
+        title = outlined_text("CHEAT CODES", 32, PUMPKIN, True, 3)
+        s.blit(title, title.get_rect(midtop=(self.rect.centerx, self.rect.y + 22)))
+        hint = get_font(14).render("Type a code and press Enter", True, DIM_TEXT)
+        s.blit(hint, hint.get_rect(midtop=(self.rect.centerx, self.rect.y + 66)))
+
+        field = self.field.move(int(6 * math.sin(self.time / 25)) if self.shake else 0, 0)
+        pygame.draw.rect(s, INK, field.inflate(6, 6), border_radius=10)
+        pygame.draw.rect(s, (30, 22, 36), field, border_radius=8)
+        pygame.draw.rect(s, PUMPKIN, field, 2, border_radius=8)
+        typed = outlined_text(self.text, 22, WHITE, True, 2) if self.text else None
+        x = field.x + 14
+        if typed:
+            s.blit(typed, typed.get_rect(midleft=(x, field.centery)))
+            x += typed.get_width() + 2
+        if (self.time // 500) % 2 == 0:                     # the blinking caret
+            pygame.draw.rect(s, GOLD, (x, field.y + 11, 3, field.height - 22))
+
+        if self.message:
+            text, color, _ = self.message
+            msg = outlined_text(text, 20, color, True, 2)
+            s.blit(msg, msg.get_rect(midtop=(self.rect.centerx, field.bottom + 18)))
+        on = cheats.labels()
+        status = "On: " + ", ".join(on) if on else "No cheats on"
+        line = get_font(14, bold=bool(on)).render(status, True, (150, 220, 140) if on else DIM_TEXT)
+        s.blit(line, line.get_rect(midtop=(self.rect.centerx, field.bottom + 52)))
+        self.back.draw(s)
+        hint_line(s, "Esc to go back   |   Enter a code again to turn it off", self.rect.bottom + 22)

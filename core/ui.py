@@ -216,3 +216,69 @@ def draw_candy_button(screen, rect, label, fill, hover=False, enabled=True, size
         screen.blit(text, text.get_rect(midleft=(x + ic.get_width() + 4, body.centery)))
     else:
         screen.blit(text, text.get_rect(center=body.center))
+
+
+# ---- health bars (the HUDs) -------------------------------------------------
+TRAIL_HOLD_MS = 380          # after a hit, the lost chunk lingers this long (pale) before draining away
+TRAIL_COLOR = (225, 105, 95)    # the chunk just lost: a muted red
+
+
+class HealthBar:
+    """A framed HP bar: glossy fill that slides to the new value, a red "damage trail" that hangs
+    on for a moment after a hit and then drains, notches every 10%, and the numbers inside."""
+
+    def __init__(self, value):
+        self.shown = float(value)        # the fill (slides toward the real value)
+        self.trail = float(value)        # the chunk you just lost
+        self.hold = 0
+        self.last = value
+
+    def update(self, value, dt):
+        if value < self.last:
+            self.hold = TRAIL_HOLD_MS    # just got hit: the trail stays put for a moment
+        self.last = value
+        k = min(1.0, dt / 90)
+        self.shown += (value - self.shown) * k
+        if value >= self.trail:
+            self.trail = max(self.shown, value)
+        elif self.hold > 0:
+            self.hold -= dt
+        else:
+            self.trail += (value - self.trail) * min(1.0, dt / 140)
+
+    def draw(self, screen, rect, max_value, color, text=None, right_to_left=False, low_pulse=0.0,
+             trail_color=TRAIL_COLOR):
+        """low_pulse (0-1) flashes the frame red, for when HP is low."""
+        rect = pygame.Rect(rect)
+        frame = rect.inflate(6, 6)
+        pygame.draw.rect(screen, INK, frame, border_radius=7)
+        rim = shade((150, 40, 40), 0.4 + 0.6 * low_pulse) if low_pulse else (78, 64, 84)
+        pygame.draw.rect(screen, rim, frame.inflate(-2, -2), 2, border_radius=6)
+        pygame.draw.rect(screen, (26, 20, 30), rect, border_radius=4)
+        top = max(1, max_value)
+
+        def part(value):
+            w = int(rect.width * max(0.0, min(1.0, value / top)))
+            r = pygame.Rect(rect.x, rect.y, w, rect.height)
+            if right_to_left:
+                r.right = rect.right
+            return r
+
+        trail = part(self.trail)
+        if trail.width:
+            pygame.draw.rect(screen, trail_color, trail, border_radius=4)
+        fill = part(self.shown)
+        if fill.width:
+            pygame.draw.rect(screen, shade(color, -0.25), fill, border_radius=4)            # body
+            pygame.draw.rect(screen, color, fill.inflate(0, -rect.height // 3).move(0, -rect.height // 6),
+                             border_radius=3)
+            gloss = fill.inflate(-4, 0)
+            gloss.height = max(2, rect.height // 4)
+            gloss.y = rect.y + 2
+            pygame.draw.rect(screen, shade(color, 0.45), gloss, border_radius=2)
+        for i in range(1, 10):                                                           # notches every 10%
+            x = rect.x + rect.width * i // 10
+            pygame.draw.line(screen, (0, 0, 0), (x, rect.bottom - rect.height // 3), (x, rect.bottom - 1), 1)
+        if text:
+            label = outlined_text(text, max(12, rect.height - 4), WHITE, True, 2)
+            screen.blit(label, label.get_rect(center=(rect.centerx, rect.centery + 1)))

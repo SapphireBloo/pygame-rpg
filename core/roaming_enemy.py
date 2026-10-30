@@ -33,6 +33,21 @@ PROFILES = {
               "chatter": ["Hee hee hee!", "*crackle*", "Burn, pumpkin, burn!", "These woods are ours!"],
               "color": (255, 170, 130), "sound": None},
 }
+REACH_UP_DOWN = 60       # it can only grab Charlie when he's within this many pixels of its own height
+# The Void's creatures (they appear out of nowhere, already hunting Charlie)
+PROFILES.update({
+    "catto": {"walk": 70, "chase": 150, "notice": 900, "grab": 110, "patrol": 120, "gait": "walk",
+              "chatter": ["...mrrow.", "*stare*", "Mrrrrrrrrrr..."], "color": (230, 120, 160), "sound": None},
+    "madghost": {"walk": 60, "chase": 120, "notice": 900, "grab": 130, "patrol": 150, "gait": "float",
+                 "chatter": ["*shhhing*", "Sharp... sharp...", "Your candy..."], "color": (230, 120, 160),
+                 "sound": "ghost_wail"},
+    "mage": {"walk": 50, "chase": 100, "notice": 900, "grab": 140, "patrol": 120, "gait": "walk",
+             "chatter": ["...", "The Void hungers.", "He's waiting for you."], "color": (230, 120, 160),
+             "sound": None},
+    "abomination": {"walk": 40, "chase": 85, "notice": 900, "grab": 150, "patrol": 100, "gait": "lurch",
+                    "chatter": ["GRRRLLLL...", "*squelch*", "Mmmmmore..."], "color": (230, 120, 160),
+                    "sound": "zombie_groan"},
+})
 SWOOP_MS = 520           # ghosts have no attack animation: they swoop for this long instead
 
 
@@ -61,6 +76,8 @@ class RoamingEnemy:
         self.defeated = False
         self.ready_for_battle = False
         self.first_strike = False        # Charlie slid into it before it could attack
+        self.bounds = None               # (min x, max x) it keeps to, between the level's obstacles
+        self.elev = 0                    # standing on a platform this high (0 = the ground)
 
     @property
     def grab_range(self):
@@ -72,11 +89,15 @@ class RoamingEnemy:
         return self.state == "lunge" and not self.defeated
 
     # ---- behavior ------------------------------------------------------
-    def update(self, dt, hero_center_x, calm=False):
+    def update(self, dt, hero_center_x, calm=False, hero_elev=0.0):
         """Returns a chatter line occasionally (for floating text), else None.
-        calm=True (e.g. while Whisper Jack is talking) keeps it from attacking."""
+        calm=True (e.g. while Whisper Jack is talking) keeps it from attacking.
+        hero_elev: how high Charlie's feet are. Up on a ledge above it (or down below its
+        platform) he's out of reach, so it just wanders (and he can drop onto its head)."""
         if self.defeated or self.ready_for_battle:
             return None
+        if abs(hero_elev - self.elev) > REACH_UP_DOWN and self.state != "lunge":
+            calm = True
         self.time += dt
         self.sprite.update(dt)
         self._animate_gait()
@@ -174,7 +195,12 @@ class RoamingEnemy:
     def shadow_size(self):
         return {"knight": 1.5, "ghost": 0.6}.get(self.spec.get("kind"), 1.0)
 
+    @property
+    def head_height(self):
+        """Roughly how tall it stands (for landing on its head)."""
+        return self.sprite.current.frames[0].get_bounding_rect().height * 0.85
+
     def draw(self, screen, camera_offset, feet_y):
         if not self.defeated:
             facing = self.facing_right != self.flip_art
-            self.sprite.draw(screen, self.x - camera_offset, feet_y, facing)
+            self.sprite.draw(screen, self.x - camera_offset, feet_y - self.elev, facing)

@@ -13,11 +13,15 @@ from core.player import Player
 SAVE_FILE = DATA_DIR / "save.json"
 VERSION = 1
 
+latest = None      # this run's most recent checkpoint (None before the first camp): dying comes back here
+
 
 def save(player, chapter_index):
     """Charlie made it to the camp after LEVELS[chapter_index]."""
+    global latest
     data = {"version": VERSION, "chapter": chapter_index, "player": player.to_save(),
             "flags": game_state.to_dict(), "difficulty": options["difficulty"]}
+    latest = data
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         SAVE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -45,7 +49,9 @@ def describe(data):
     return f"Camp after Chapter {data['chapter'] + 1}"
 
 
-def restore(data):
-    """Rebuild the Player and story flags from a save. Returns (player, chapter_index)."""
-    game_state.from_dict(data.get("flags", {}))
+def restore(data, story_flags=True):
+    """Rebuild the Player (and the story flags, unless story_flags is False) from a save.
+    Returns (player, chapter_index)."""
+    if story_flags:
+        game_state.from_dict(data.get("flags", {}))
     return Player.from_save(data["player"]), data["chapter"]

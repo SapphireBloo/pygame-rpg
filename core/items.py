@@ -28,6 +28,17 @@ ITEMS = [
     {"key": "chin_juice", "name": "Chin Juice", "icon": "chin_juice", "desc": "Chin meter +50. Battle only.",
      "buy": 6, "sell": 3, "battle": True, "field": False, "meter": 50},
 
+    # Snacks for Crumb (feed him at camp for a blessing that lasts the next chapter). Monsters
+    # sometimes drop them and every boss leaves one. The Crow will buy them, but Crumb is nicer.
+    {"key": "butter", "name": "Butter Pat", "icon": "butter", "desc": "Feed Crumb: +15 max HP next chapter.",
+     "buy": None, "sell": 2, "snack": "+15 max HP next chapter"},
+    {"key": "jam", "name": "Jam Jar", "icon": "jam", "desc": "Feed Crumb: Chin head start next chapter.",
+     "buy": None, "sell": 2, "snack": "Fights start with 30 Chin, next chapter"},
+    {"key": "sugar", "name": "Sugar Cube", "icon": "sugar", "desc": "Feed Crumb: harder punches next chapter.",
+     "buy": None, "sell": 2, "snack": "+3 punch damage next chapter"},
+    {"key": "golden_crumb", "name": "Golden Crumb", "icon": "golden_crumb",
+     "desc": "It glows. Crumb would REALLY like this.", "buy": None, "sell": None},
+
     # Trophies: monsters drop them, the Crow buys them
     {"key": "ectoplasm", "name": "Ectoplasm", "icon": "ectoplasm", "desc": "Ghost goo. Still wiggling.",
      "buy": None, "sell": 2},
@@ -45,8 +56,11 @@ ITEMS = [
      "buy": None, "sell": 14},
     {"key": "demon_horn", "name": "Demon Horn", "icon": "horn", "desc": "Malgorath's. Still smoldering.",
      "buy": None, "sell": 20},
+    {"key": "golden_crust", "name": "Golden Crust", "icon": "golden_crust", "desc": "Proof you beat the Crust Eternal.",
+     "buy": None, "sell": 40},
 ]
 ITEMS_BY_KEY = {item["key"]: item for item in ITEMS}
+SNACKS = [item["key"] for item in ITEMS if item.get("snack")]
 SHOP_STOCK = [item for item in ITEMS if item.get("buy")]          # what the Crow sells
 BATTLE_ITEMS = [item for item in ITEMS if item.get("battle")]     # order shown in the battle Items menu
 
@@ -60,7 +74,9 @@ LOOT = {
     "warlock": ("hex_stone", 1.0),
     "worm": ("worm_scale", 1.0),
     "demon": ("demon_horn", 1.0),
+    "bread": ("golden_crust", 1.0),
 }
+SNACK_DROP_CHANCE = 0.15     # regular monsters; bosses always leave a snack
 
 STARTING_ITEMS = {"bomb": 1, "potion": 2}
 
